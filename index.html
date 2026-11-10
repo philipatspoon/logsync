@@ -407,7 +407,7 @@ const DEFAULT_SETTINGS={
   fontScale:1, showNext:true, tcMode:'timer', showProgress:true, previewFollowUp:true, animations:true,
   mirror:false, hostLang:'sv', accent:'#faf7f2', cueSeconds:8, showMark:true, hostName:'Sofia',
   cues:['Följdfråga?','Gå vidare','Avrunda','30 sek kvar','Ta om frågan','Snyggt – fortsätt'],
-  fps:'25', tcSync:null, camLatency:80, ocrRoi:null, syncOnRec:true, camDeviceId:null, phoneSession:null, publicUrl:'',
+  fps:'25', tcSync:null, camLatency:80, ocrRoi:null, syncOnRec:true, camDeviceId:null, phoneSession:null, publicUrl:'https://philipatspoon.github.io/logsync/',
   logTags:['Bra svar','Bra tagning','Omtag','Klipp bort','Citat','Skratt','Strul','Tappade tråden']
 };
 const DEFAULT_LIVE={cardId:null,reveal:0,blackout:false,showInfo:false,cue:null,visited:{},skipped:{},timer:{running:false,startedAt:0,acc:0},rec:{on:false,clip:0,lastKey:null}};
@@ -727,6 +727,7 @@ function load(){
   if(!data||!Array.isArray(data.episodes)||!data.episodes.length) data=seedData();
   settings={...DEFAULT_SETTINGS,...(read(LS_SETTINGS)||{})};
   if(!ACCENTS[settings.accent]) settings.accent=DEFAULT_SETTINGS.accent;
+  if(!settings.publicUrl) settings.publicUrl=DEFAULT_SETTINGS.publicUrl;
   live={...clone(DEFAULT_LIVE),...(read(LS_LIVE)||{})};
   live.cue=null;live.calib=false;
   if(!live.rec) live.rec=clone(DEFAULT_LIVE.rec);
