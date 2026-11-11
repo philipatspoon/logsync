@@ -1291,7 +1291,7 @@ function openSync(opts={}){
         </div>
       </div>
       <div class="sy-cal" id="phCal" hidden><div data-cal></div><span>Kalibrering: rikta mobilen hit eller mot värdskärmen</span></div>
-      <p class="hint">Mobilen och datorn pratar via den publika tjänsten ntfy.sh i en slumpad, privat kanal. Bara synkkoden skickas. Mobilsidan kräver att appen ligger publicerad på en https-adress.</p>
+      <p class="hint">Mobilen och datorn pratar via den publika tjänsten ntfy.sh i en slumpad, privat kanal. Bara synkkoden skickas. Tjänsten tillåter 250 meddelanden per dygn och nätverk, vilket räcker till ungefär 60 synkar. Går det inte fram skriver du in mobilens kod här.</p>
     </div>
     <div data-pane="tod" hidden>
       <p>Om kamerans tidskod är inställd på klockslag (Time of Day) behövs ingen synk: appen använder datorns klocka. Kontrollera att klockorna visar samma tid.</p>
@@ -1328,7 +1328,8 @@ function syncAction(a,el){
 /* ---- synk via mobil (QR) ---- */
 // Mobilen räknar själv ut skillnaden mellan kamerans tidskod och klockan (båda enheterna har internettid)
 // och skickar den som en kort kod. Koden är giltig oavsett när den kommer fram.
-const RELAY='https://ntfy.sh',B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ',DAY=86400000,QR_SRC='https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+// Relätjänsten kan bytas mot en egen ntfy-server: localStorage.setItem('vh.relay','https://…')
+const RELAY=(()=>{try{return localStorage.getItem('vh.relay')||'';}catch(e){return '';}})()||'https://ntfy.sh',B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ',DAY=86400000,QR_SRC='https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
 let relayES=null,lastPhone=0;const relaySeen=new Set();
 // Koden bär skillnaden (ms) mellan kamerans tidskod och klockan, modulo ett tidskodsdygn.
 // Ett tidskodsdygn är nom*86400 rutor, vilket vid 23.976/29.97/59.94 är längre än 24 timmar.
@@ -1346,11 +1347,28 @@ function readSyncCode(str){
   const fps=Object.keys(FPS)[v%8],dms=Math.floor(v/8);return fps&&dms<tcDayMs(fps)?{fps,dms}:null;
 }
 function relayListen(sess,onMsg){
-  if(relayES) relayES.close();if(!sess) return;
-  relayES=new EventSource(`${RELAY}/vardskarm-${sess}/sse?since=20s`); // since: hämta ikapp efter avbrott, dubbletter filtreras
-  relayES.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.event&&m.event!=='message') return;const p=JSON.parse(m.message);if(!p||relaySeen.has(p.id)) return;relaySeen.add(p.id);onMsg(p);}catch(x){}};
+  clearTimeout(relayListen.t);if(relayES) relayES.close();relayES=null;if(!sess) return;
+  let delay=3000;
+  const connect=()=>{
+    const es=relayES=new EventSource(`${RELAY}/vardskarm-${sess}/sse?since=20s`); // since: hämta ikapp efter avbrott, dubbletter filtreras
+    es.onopen=()=>{delay=3000;};
+    es.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.event&&m.event!=='message') return;const p=JSON.parse(m.message);if(!p||relaySeen.has(p.id)) return;relaySeen.add(p.id);onMsg(p);}catch(x){}};
+    // Egen återanslutning med växande paus, så att ett trasigt nät inte äter upp tjänstens kvot
+    es.onerror=()=>{if(relayES!==es) return;es.close();relayListen.t=setTimeout(connect,delay);delay=Math.min(delay*2,60000);};
+  };
+  connect();
 }
-function relaySend(sess,obj){if(!sess) return Promise.resolve();obj.id=uid();return fetch(`${RELAY}/vardskarm-${sess}`,{method:'POST',body:JSON.stringify(obj)}).catch(()=>toast('Kunde inte nå ntfy.sh – kontrollera internet'));}
+// Skickar ett meddelande. Ger false om det inte gick fram (inget nät, eller tjänstens dagsgräns är nådd).
+let relayErr='';
+async function relaySend(sess,obj){
+  if(!sess) return false;obj.id=uid();
+  try{
+    const r=await fetch(`${RELAY}/vardskarm-${sess}`,{method:'POST',body:JSON.stringify(obj)});
+    if(r.ok){relayErr='';return true;}
+    relayErr=r.status===429?'Relätjänsten tar inte emot fler meddelanden just nu (dagsgränsen är nådd).':`Relätjänsten svarade med fel ${r.status}.`;
+  }catch(e){relayErr='Ingen kontakt med relätjänsten – kontrollera internet.';}
+  return false;
+}
 // --- datorn ---
 // Mobilen räknas som parad om den hört av sig under passet; vid REC frågar vi och väntar på kvittens
 const phoneOnline=()=>Date.now()-lastPhone<12*3600000;
@@ -1378,7 +1396,10 @@ function applySyncCode(code,method){
   syncDone();return true;
 }
 function phoneRequest(){
-  ensurePhoneSession();relaySend(settings.phoneSession,{from:'laptop',type:'req',fps:$('#syFps')?$('#syFps').value:settings.fps});
+  ensurePhoneSession();
+  relaySend(settings.phoneSession,{from:'laptop',type:'req',fps:$('#syFps')?$('#syFps').value:settings.fps}).then(ok=>{
+    if(ok) return;clearTimeout(phoneWaitT);const pc=$('#phConnL');
+    if(pc) pc.innerHTML=`<span class="warn-t">${esc(relayErr)}</span> Tryck Synka på mobilen och skriv in koden här, eller välj fliken Med kamera.`;});
   const pc=$('#phConnL');if(pc) pc.innerHTML='Väntar på mobilen …';
   clearTimeout(phoneWaitT);phoneWaitT=setTimeout(()=>{const pc=$('#phConnL');
     if(pc) pc.innerHTML='<span class="warn-t">Mobilen svarar inte.</span> Är mobilsidan öppen och skärmen tänd? Skanna QR-koden igen, eller välj fliken Med kamera.';},6000);
@@ -1409,8 +1430,10 @@ function phoneAction(a){
 let phSess=null;
 function phoneSendMsg(o){o.from='phone';return relaySend(phSess,o);}
 function phoneSendResult(t,F,fps,method){
-  const code=makeSyncCode(t,F,fps);phoneSendMsg({type:'res',code,method});
-  $('#phRes').innerHTML=`<div class="ph-code">${code}</div><div class="muted" id="phAck">Skickad ${new Date().toLocaleTimeString('sv-SE')} – väntar på kvittens …</div>`;
+  const code=makeSyncCode(t,F,fps);
+  $('#phRes').innerHTML=`<div class="ph-code">${code}</div><div class="muted" id="phAck">Skickar till datorn …</div>`;
+  phoneSendMsg({type:'res',code,method}).then(ok=>{const a=$('#phAck');if(!a||/tagit emot/.test(a.textContent)) return;
+    a.innerHTML=ok?`Skickad ${new Date().toLocaleTimeString('sv-SE')} – väntar på kvittens …`:`<span class="warn-t">${esc(relayErr)}</span> Skriv in koden ovan på datorn (Synka tidskod → Med mobil).`;});
   if(navigator.vibrate) navigator.vibrate(60);
 }
 function initPhone(){
@@ -1443,7 +1466,7 @@ function initPhone(){
       if(m.type==='req'){const go=$('#phAuto').checked&&!ocrRun;phoneSendMsg({type:'working',auto:go});
         if(go){if(FPS[m.fps]){$('#syFps').value=m.fps;settings.fps=m.fps;}$('#syOcr').textContent='Datorn bad om synk – läser av …';syncAuto();}}
     });
-    phoneSendMsg({type:'hello'}).then(()=>{$('#phConn').innerHTML='<span class="ok-t">● Ansluten</span>';});
+    phoneSendMsg({type:'hello'}).then(ok=>{$('#phConn').innerHTML=ok?'<span class="ok-t">● Ansluten</span>':'<span class="warn-t">Ingen kontakt med datorn – koden kan skrivas in för hand</span>';if(!ok) toast(relayErr,7000);});
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') phoneSendMsg({type:'hello'});});
   }
   let lock=null;const req=async()=>{try{if('wakeLock' in navigator&&document.visibilityState==='visible') lock=await navigator.wakeLock.request('screen');}catch(e){}};

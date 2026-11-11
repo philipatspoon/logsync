@@ -57,7 +57,7 @@ Under **Redigera** finns episoder, sektioner och kort. Allt sparas automatiskt.
 
 Varje klipp sparar sin egen synk, så det fungerar med både Free Run och Rec Run. Precisionen är inom en till två rutor. Mät kamerans fördröjning en gång under *Precision* i synkfönstret.
 
-Mobilen och datorn pratar via den publika tjänsten [ntfy.sh](https://ntfy.sh) i en slumpad kanal. Det enda som skickas är en synkkod på sju tecken. Går det inte att nå tjänsten kan koden skrivas in för hand.
+Mobilen och datorn pratar via den publika tjänsten [ntfy.sh](https://ntfy.sh) i en slumpad kanal. Det enda som skickas är en synkkod på sju tecken. Tjänsten tillåter 250 meddelanden per dygn och nätverk, och en synk kostar fyra, så det räcker till ungefär 60 synkar per dag. Går det inte att nå tjänsten visar mobilen koden, och du skriver in den på datorn.
 
 Textigenkänningen (Tesseract) hämtas från nätet första gången och sparas sedan av webbläsaren. Gör en provsynk innan inspelningsdagen.
 
@@ -79,4 +79,6 @@ Datan hör till adressen appen öppnas från. Byter du mellan den lokala filen o
 node tests/run.js
 ```
 
-kör testerna (kräver Playwright med Chromium). De öppnar appen som lokal fil och kontrollerar navigering, värdskärm, redigering, import, tidskodsmatte, logg, export och backup.
+kör testerna (kräver Playwright med Chromium). De använder en lokal kopia av relätjänsten och går inte ut på nätet. De öppnar appen som lokal fil och kontrollerar navigering, värdskärm, redigering, import, tidskodsmatte, logg, export och backup.
+
+Relätjänsten kan bytas mot en egen ntfy-server genom att sätta `localStorage.setItem('vh.relay', 'https://…')` i webbläsarens konsol på både datorn och mobilen.

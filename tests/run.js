@@ -1,7 +1,7 @@
 // Tester för Värdskärm. Kör:  node tests/run.js   (kräver Playwright med Chromium)
 // Öppnar index.html som lokal fil, precis som appen används, och kontrollerar hela flödet.
 const { chromium } = require('playwright');
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), http = require('http');
 const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
 const MANUS = fs.readFileSync(path.join(__dirname, 'manus-exempel.txt'), 'utf8');
 let pass = 0; const fails = [];
@@ -26,7 +26,36 @@ function docsHtml(txt) {
   return '<meta charset="utf-8"><b id="docs-internal-guid-x" style="font-weight:normal">' + out.join('') + '</b>';
 }
 
+// Lokal kopia av relätjänsten ntfy.sh: samma adresser och samma meddelandeformat, plus en strömbrytare för dagsgränsen (429)
+function fakeRelay() {
+  const topics = {}, subs = {}, state = { posts: 0, deny: false }; let seq = 0;
+  const H = { 'access-control-allow-origin': '*' };
+  const srv = http.createServer((req, res) => {
+    const [, topic, tail] = req.url.split('?')[0].split('/');
+    if (req.method === 'OPTIONS') { res.writeHead(204, { ...H, 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': '*' }); return res.end(); }
+    if (req.method === 'POST') {
+      let body = ''; req.on('data', d => body += d); req.on('end', () => {
+        state.posts++;
+        if (state.deny) { res.writeHead(429, { ...H, 'content-type': 'application/json' }); return res.end('{"code":42908,"http":429,"error":"limit reached: daily message quota reached"}'); }
+        const m = { id: 'm' + (++seq), time: Math.floor(Date.now() / 1000), event: 'message', topic, message: body };
+        (topics[topic] = topics[topic] || []).push({ m, at: Date.now() });
+        (subs[topic] || []).forEach(r => r.write(`data: ${JSON.stringify(m)}\n\n`));
+        res.writeHead(200, { ...H, 'content-type': 'application/json' }); res.end(JSON.stringify(m));
+      }); return;
+    }
+    if (tail === 'sse') {
+      res.writeHead(200, { ...H, 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      res.write(`event: open\ndata: ${JSON.stringify({ id: 'o' + seq, event: 'open', topic })}\n\n`);
+      (topics[topic] || []).filter(x => Date.now() - x.at < 20000).forEach(x => res.write(`data: ${JSON.stringify(x.m)}\n\n`));
+      (subs[topic] = subs[topic] || []).push(res); req.on('close', () => { subs[topic] = subs[topic].filter(r => r !== res); }); return;
+    }
+    res.writeHead(404, H); res.end();
+  });
+  return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ url: 'http://127.0.0.1:' + srv.address().port, state, close: () => { Object.values(subs).flat().forEach(r => r.destroy()); srv.close(); } })));
+}
+
 (async () => {
+  const relay = await fakeRelay();
   const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['camera', 'clipboard-read', 'clipboard-write'] });
   await ctx.route(/ntfy\.sh|jsdelivr/, r => r.abort());           // testerna ska inte gå ut på nätet
@@ -36,7 +65,7 @@ function docsHtml(txt) {
   // Nollställ lagringen från värdskärmsläget: operatörsläget sparar sin data när sidan lämnas och skulle skriva tillbaka den
   const fresh = async (settings = {}) => {
     await page.goto('about:blank'); await page.goto(APP + '#display');
-    await page.evaluate(s => { localStorage.clear(); localStorage.setItem('vh.settings.v1', JSON.stringify(s)); }, { syncOnRec: false, ...settings });
+    await page.evaluate(([s, r]) => { localStorage.clear(); localStorage.setItem('vh.settings.v1', JSON.stringify(s)); localStorage.setItem('vh.relay', r); }, [{ syncOnRec: false, ...settings }, relay.url]);
     await page.goto('about:blank'); await page.goto(APP); await page.waitForTimeout(250);
   };
   const S = (fn, arg) => page.evaluate(fn, arg);
@@ -245,8 +274,41 @@ function docsHtml(txt) {
   ok(await ph.$('#syAutoBtn') !== null && await ph.evaluate(() => document.querySelector('#syVid').videoWidth > 0), 'mobilsidan startar med kameran igång');
   await ph.close();
 
+  // ---------------------------------------------------------------- mobilsynk via relä
+  section('Mobilsynk via relätjänsten');
+  await fresh({ syncOnRec: true });
+  await page.click('#syncBtn'); await page.click('[data-sy=phone]'); await page.waitForTimeout(300);
+  const sess = await S(() => settings.phoneSession);
+  ok(/^[0-9a-z]{12}$/.test(sess), 'datorn skapar en slumpad kanal för parningen', sess);
+  const mob = await ctx.newPage(); mob.on('pageerror', e => errs.push('mobil: ' + e.message));
+  await mob.goto(APP + '#phone&s=' + sess + '&f=25');
+  await page.waitForFunction(() => /Mobilen är parad/.test(document.querySelector('#phConnL').textContent), null, { timeout: 8000 }).catch(() => {});
+  ok(/Mobilen är parad/.test(await page.textContent('#phConnL')), 'mobilen hör av sig och datorn visar att den är parad');
+  eq(await mob.textContent('#phConn'), '● Ansluten', 'mobilen visar att den har kontakt');
+  // Avläsningen ersätts av ett fast värde: kameran visar 05:00:00:00 just nu
+  await mob.evaluate(() => { syncAuto = () => applySyncFrames(Date.now(), parseTC('05:00:00:00', 25), '25', 'automatisk avläsning'); });
+  await page.click('[data-a=modal-close]');
+  relay.state.posts = 0;
+  await page.keyboard.press('r');                                   // REC → datorn ber mobilen synka
+  await page.waitForFunction(() => document.querySelector('#modal').hidden && settings.tcSync && settings.tcSync.method === 'mobil', null, { timeout: 8000 }).catch(() => {});
+  eq(await S(() => [settings.tcSync && settings.tcSync.method, tcAt(Date.now()).slice(0, 7), epLog().clips[0].sync.own, document.querySelector('#modal').hidden]), ['mobil', '05:00:0', true, true], 'REC på datorn → mobilen läser av → datorn synkas och fönstret stängs');
+  await mob.waitForFunction(() => /tagit emot/.test((document.querySelector('#phAck') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  ok(/tagit emot/.test(await mob.textContent('#phAck')), 'mobilen får kvittens från datorn');
+  eq(relay.state.posts, 4, 'en synk kostar fyra meddelanden (inga pingar som äter upp dagsgränsen)');
+  await mob.waitForTimeout(1200); eq(relay.state.posts, 4, 'inga meddelanden skickas mellan synkarna');
+  // dagsgränsen nådd: båda sidor säger till, och koden fungerar för hand
+  relay.state.deny = true;
+  await page.keyboard.press('r'); await S(() => setSync(null));
+  await page.click('#syncBtn'); await page.click('[data-sy=phone]'); await page.click('[data-a=ph-req]'); await page.waitForTimeout(500);
+  ok(/dagsgränsen/.test(await page.textContent('#phConnL')), 'datorn säger till när relätjänsten avvisar meddelandet');
+  await mob.evaluate(() => syncAuto()); await mob.waitForTimeout(500);
+  ok(/Skriv in koden/.test(await mob.textContent('#phAck')), 'mobilen säger till och visar koden att skriva in');
+  await page.fill('#phCode', (await mob.textContent('.ph-code')).toLowerCase()); await page.click('[data-a=ph-code]');
+  eq(await S(() => [settings.tcSync && settings.tcSync.method, tcAt(Date.now()).slice(0, 6)]), ['kod från mobilen', '05:00:'], 'koden från mobilen kan skrivas in för hand');
+  relay.state.deny = false; await mob.close();
+
   eq(errs, [], 'inga skriptfel i något fönster');
-  await browser.close();
+  await browser.close(); relay.close();
   console.log(`\n${pass} kontroller godkända, ${fails.length} underkända`);
   if (fails.length) { console.log(fails.map(f => ' - ' + f).join('\n')); process.exit(1); }
 })().catch(e => { console.error('Testkörningen avbröts:', e); process.exit(2); });
