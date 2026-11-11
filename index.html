@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tidskodssynk</title>
+<title>Värdskärm</title>
 <style>
 :root{
   /* Verified palette (verified.io) */
   --black:#0c0c0b;--cream:#faf7f2;--g200:#e6deda;--g400:#bdb0aa;--g600:#706864;--g800:#272727;
   --blue200:#a8ceff;--blue300:#66a8ff;--blue500:#094fff;--green300:#d7fa6f;--orange300:#ff9c55;--orange500:#ff6430;--purple300:#e782f7;
   --core:var(--blue200);--guest:var(--blue500);--moment:var(--orange300);--script:var(--purple300);--info:var(--g400);
-  --font:"Verified Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --font:"VH Custom","Verified Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --track-title:-0.03em;--track-sub:-0.02em;--track-tight:-0.01em;
 }
 :root,[data-theme=dark]{
@@ -185,7 +185,8 @@ body.mode-phone{overflow:auto}
 .sy-now{display:flex;justify-content:space-between;align-items:center;background:var(--field);padding:12px 14px;border-radius:8px}
 .sy-now span{color:var(--muted);font-size:13px}
 .sy-now b{font:500 30px ui-monospace,Menlo,monospace}
-.ex-pre{white-space:pre-wrap;font-size:12px;background:var(--field);padding:12px;max-height:320px;overflow:auto;border-radius:8px}
+.ex-card{width:min(900px,100%)}
+.ex-pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;background:var(--field);padding:12px;max-height:42vh;overflow:auto;border-radius:8px;margin:0}
 /* REC på värdskärmen */
 .st-tc .rec-l{color:#ff6430;margin-right:14px;letter-spacing:.02em}
 .next-box .nb-t{font-size:16px}
@@ -247,6 +248,7 @@ body.mode-phone{overflow:auto}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .set-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px}
 .set-grid .full{grid-column:1/-1}
+.set-font{display:flex;flex-direction:column;gap:5px;font-size:13px}
 .set-grid label{display:flex;flex-direction:column;gap:5px}
 .set-grid label.cb{flex-direction:row;align-items:center;gap:8px;color:var(--text);font-size:14px}
 .set-grid input[type=checkbox]{width:auto}
@@ -352,9 +354,9 @@ body.idle .d-hint{opacity:0}
 <script>
 'use strict';
 /* ======================================================================
-   Värdskärm – frågeskärm för programledare
-   En fil, inga beroenden, fungerar offline.
-   Operatören (#) styr, värdskärmen (#display) visar.
+   Värdskärm – frågeskärm för programledare, med logg mot kamerans tidskod
+   En fil. Operatören (#) styr, värdskärmen (#display) visar, mobilen (#phone) läser tidskod.
+   All data (manus, logg, inställningar, typsnitt) ligger i webbläsarens lagring, inte i koden.
    ====================================================================== */
 
 const $=(s,r=document)=>r.querySelector(s);
@@ -364,6 +366,7 @@ const nl2br=s=>esc(s).replace(/\n/g,'<br>');
 const clone=o=>JSON.parse(JSON.stringify(o));
 const uid=()=>Math.random().toString(36).slice(2,10);
 
+const LS_FONTS='vh.fonts.v1';
 const LS_DATA='vh.data.v1', LS_LIVE='vh.live.v1', LS_SETTINGS='vh.settings.v1', LS_VM='vh.vm.v1', LS_LOG='vh.log.v1';
 // Tidskod: [nominella rutor per TC-sekund, verkliga rutor per sekund]
 const FPS={'23.976':[24,24000/1001],'24':[24,24],'25':[25,25],'29.97':[30,30000/1001],'30':[30,30],'50':[50,50],'59.94':[60,60000/1001],'60':[60,60]};
@@ -388,7 +391,6 @@ const CH=('BroadcastChannel' in window)?new BroadcastChannel('vh-sync'):null;
 const MODE=location.hash.startsWith('#display')?'display':location.hash.startsWith('#phone')?'phone':'operator';
 
 const KINDS={core:'Kärnfråga',guest:'Gästfråga',moment:'Moment',script:'Manus',info:'Info / slide'};
-const KIND_SHORT={core:'K',guest:'G',moment:'M',script:'S',info:'i'};
 // Verified-grafik (verified.io): märket, ordmärket och "hallmark"-formerna
 const MARK_SVG='<svg class="vmark" viewBox="0 0 710 710" aria-hidden="true"><path d="M153.18,151.22h59.69l-39.1-67.77c-5.53-9.57-1.84-18,0-21.17s7.3-10.57,18.32-10.57c7.53,0,14.57,4.04,18.32,10.57l51.35,88.94,82.21,142.43c7.98,13.77,22.23,22.01,38.17,22.01s30.15-8.24,38.13-22.01l82.21-142.43,24.21-41.92c13.15-22.82,13.15-50.06,0-72.88C513.51,13.61,489.92,0,463.58,0s-50.12,13.96-63.11,36.42l-66.28,114.79h59.72l51.35-88.94c3.75-6.53,10.79-10.57,18.32-10.57,11.02,0,16.48,7.4,18.32,10.57,1.84,3.17,5.53,11.6,0,21.17l-39.1,67.77-60.66,105.07-60.66-105.07-66.28-114.79C242.21,13.96,218.04,0,192.09,0s-49.93,13.61-63.11,36.42c-13.15,22.82-13.15,50.06,0,72.88l24.21,41.92Z" /><path d="M557.11,559.27h-59.75l38.88,67.29c5.49,9.53,1.84,17.97,0,21.14-1.84,3.2-7.3,10.6-18.29,10.6-7.53,0-14.57-4.07-18.32-10.6l-51.06-88.42-82.5-142.94c-7.98-13.77-22.23-22.01-38.17-22.01s-30.15,8.24-38.13,22.01l-82.5,142.94-23.91,41.43c-13.19,22.82-13.19,50.06,0,72.84,13.15,22.82,36.74,36.46,63.08,36.46s50.12-13.96,63.08-36.46l65.99-114.28h-59.72l-51.03,88.42c-3.78,6.53-10.79,10.6-18.32,10.6-11.02,0-16.48-7.4-18.32-10.6-1.81-3.17-5.49-11.6,0-21.14l38.88-67.29,60.95-105.55,60.95,105.55,65.96,114.28c12.99,22.49,37.16,36.42,63.08,36.46,26.34,0,49.93-13.64,63.11-36.42,13.15-22.82,13.15-50.06,0-72.88l-23.91-41.43Z" /><path d="M673.55,255.19c22.46-12.96,36.45-37.17,36.45-63.12s-13.64-49.93-36.45-63.12c-22.82-13.15-50.06-13.15-72.87,0l-41.82,24.14v59.72l67.67-39.07c9.57-5.49,18-1.84,21.17,0,3.2,1.84,10.6,7.3,10.6,18.32,0,7.56-4.07,14.58-10.6,18.32l-88.84,51.29-142.52,82.32c-13.77,7.95-22.01,22.2-22.01,38.13s8.24,30.15,22.01,38.14l142.52,82.28,41.82,24.14c11.41,6.59,23.91,9.86,36.45,9.86s25.01-3.26,36.42-9.86c22.82-13.19,36.45-36.78,36.45-63.12s-13.96-50.13-36.45-63.12l-114.69-66.25v59.72l88.84,51.32c6.53,3.75,10.6,10.79,10.6,18.32,0,11.02-7.4,16.48-10.6,18.32-3.17,1.84-11.6,5.53-21.17,0l-67.67-39.07-105.16-60.69,105.16-60.73,114.69-66.22Z" /><path d="M62.31,499.61l88.52-51.1,142.84-82.48c13.77-7.98,22.01-22.23,22.01-38.13s-8.24-30.19-22.01-38.17l-142.84-82.44-41.53-23.98c-22.82-13.19-50.06-13.19-72.84,0C13.64,196.46.03,220.06.03,246.39s13.93,50.13,36.42,63.09l114.37,66.06v-59.72l-88.52-51.1c-6.53-3.78-10.57-10.79-10.57-18.32,0-11.02,7.37-16.48,10.57-18.32,3.17-1.81,11.6-5.49,21.14.03l67.38,38.91,105.48,60.89-105.48,60.89-114.37,66.03C13.96,467.81.03,491.98,0,517.9c0,26.34,13.64,49.93,36.45,63.12,11.38,6.56,23.91,9.86,36.42,9.86s25.01-3.3,36.42-9.86l41.53-23.98v-59.72l-67.38,38.91c-9.53,5.49-17.97,1.84-21.14,0-3.2-1.84-10.6-7.3-10.6-18.29,0-7.53,4.07-14.58,10.6-18.32Z" /></svg>';
 const WORDMARK_SVG='<svg class="vword" viewBox="0 0 694.95 126.28" aria-hidden="true"><polygon points="57.42 101.93 22.57 0 0 0 45.93 125.8 46.11 126.28 62.46 126.28 109.14 0 93.6 0 57.42 101.93" /><polygon points="138.07 111.94 138.07 65.58 186.97 65.58 186.97 50.87 138.07 50.87 138.07 14.34 177.27 14.33 199.08 17.4 199.08 0 117.87 0 117.87 126.28 199.45 126.28 199.45 108.88 177.37 111.94 138.07 111.94" /><path d="M300.3,62.26c4.74-6.4,7.14-14.18,7.14-23.13,0-11.51-4.03-20.98-11.96-28.15C287.68,3.7,274.6,0,256.59,0h-42.34v126.28h20.01v-46.14h20.63c1.58,0,4.04-.12,7.32-.35l23.98,46.09.21.4h22.89l-28.37-50.26c8.28-3.07,14.79-7.69,19.38-13.76ZM278.47,59.7c-6.02,4.3-14.53,6.48-25.29,6.48h-18.93V13.96h19.3c11.12,0,19.62,2.3,25.26,6.84,5.71,4.49,8.6,10.79,8.6,18.71,0,9.04-3.02,15.84-8.95,20.2Z" /><polygon points="345.16 0 318.87 0 322.01 13.68 322.01 112.6 318.87 126.28 345.16 126.28 342.02 112.6 342.02 13.68 345.16 0" /><polygon points="360.28 126.28 380.29 126.28 380.29 69.36 426.42 69.36 426.42 54.65 380.29 54.65 380.29 14.34 421.83 14.33 438.52 17.44 438.52 .19 360.28 0 360.28 126.28" /><polygon points="476.79 0 450.5 0 453.64 13.68 453.64 112.6 450.5 126.28 476.79 126.28 473.65 112.6 473.65 13.68 476.79 0" /><polygon points="512.28 111.94 512.28 65.58 561.18 65.58 561.18 50.87 512.28 50.87 512.28 14.34 551.48 14.33 573.29 17.4 573.29 0 492.08 0 492.08 126.28 573.67 126.28 573.67 108.88 551.58 111.94 512.28 111.94" /><path d="M683.69,23.77C672.75,8,656.07,0,634.11,0h-45.36v126.28h44.04c16,0,29.65-4.96,40.58-14.75,11.94-10.67,19.01-24.82,21.04-42.07,2.03-17.38-1.58-32.75-10.72-45.7ZM673.46,71.39c-.49,5.31-1.93,10.51-4.29,15.46-2.23,4.95-5.05,9.41-8.39,13.24-3.19,3.68-7.3,6.67-12.22,8.89-4.92,2.22-10.42,3.34-16.34,3.34h-23.27V13.77h22.9c6.17,0,11.86,1.12,16.91,3.34,5.16,2.21,9.4,5.26,12.59,9.07,3.22,3.71,5.98,8.1,8.21,13.07,2.34,4.94,3.72,10.19,4.09,15.63.5,5.47.44,11.01-.19,16.51Z" /></svg>';
@@ -405,12 +407,48 @@ const HOST_LABELS={
 };
 const DEFAULT_SETTINGS={
   fontScale:1, showNext:true, tcMode:'timer', showProgress:true, previewFollowUp:true, animations:true,
-  mirror:false, hostLang:'sv', accent:'#faf7f2', cueSeconds:8, showMark:true, hostName:'Sofia',
+  mirror:false, hostLang:'sv', accent:'#faf7f2', cueSeconds:8, showMark:true, hostName:'Programledare',
   cues:['Följdfråga?','Gå vidare','Avrunda','30 sek kvar','Ta om frågan','Snyggt – fortsätt'],
-  fps:'25', tcSync:null, camLatency:80, ocrRoi:null, syncOnRec:true, camDeviceId:null, phoneSession:null, publicUrl:'https://philipatspoon.github.io/logsync/',
+  fps:'25', tcSync:null, exportGoal:'', camLatency:80, ocrRoi:null, syncOnRec:true, camDeviceId:null, phoneSession:null, publicUrl:'https://philipatspoon.github.io/logsync/',
   logTags:['Bra svar','Bra tagning','Omtag','Klipp bort','Citat','Skratt','Strul','Tappade tråden']
 };
+// Inställningar som hör till den här datorn och inspelningsdagen – följer inte med i backup eller återställning
+const MACHINE_KEYS=['tcSync','fps','camLatency','ocrRoi','camDeviceId','phoneSession','publicUrl'];
+const keepMachine=S=>Object.fromEntries(MACHINE_KEYS.filter(k=>k in S).map(k=>[k,S[k]]));
 const DEFAULT_LIVE={cardId:null,reveal:0,blackout:false,showInfo:false,cue:null,visited:{},skipped:{},timer:{running:false,startedAt:0,acc:0},rec:{on:false,clip:0,lastKey:null}};
+
+/* ---------------------------------------------------------------------
+   Typsnitt – egna typsnittsfiler sparas i webbläsaren och används i alla fönster
+   --------------------------------------------------------------------- */
+function getFonts(){try{const f=JSON.parse(localStorage.getItem(LS_FONTS));return f&&Array.isArray(f.faces)?f:{faces:[]};}catch(e){return {faces:[]};}}
+function applyFonts(){
+  let st=document.getElementById('userFonts');if(!st){st=document.createElement('style');st.id='userFonts';document.head.appendChild(st);}
+  st.textContent=getFonts().faces.map(f=>`@font-face{font-family:"VH Custom";src:url(${f.data});font-weight:${+f.weight||400};font-style:normal;font-display:block}`).join('\n');
+  if(document.fonts&&document.fonts.ready) document.fonts.ready.then(refitStages);
+}
+// Texten passas in efter typsnittets mått: passa in igen när ett typsnitt har laddats
+function refitStages(){document.querySelectorAll('.stage').forEach(el=>{if(el._v){el._plain=null;renderStage(el,el._v);}});}
+function fontWeight(name,buf){
+  try{ // TTF/OTF: läs vikten ur OS/2-tabellen
+    const d=new DataView(buf),n=d.getUint16(4);
+    for(let i=0;i<n;i++){const o=12+i*16;if(d.getUint32(o)===0x4f532f32) return d.getUint16(d.getUint32(o+8)+4);}
+  }catch(e){}
+  const m=String(name).toLowerCase();
+  return /thin|hairline/.test(m)?100:/extra\s*-?light|ultra\s*-?light/.test(m)?200:/light/.test(m)?300:/medium/.test(m)?500:/semi\s*-?bold|demi/.test(m)?600:/extra\s*-?bold|ultra\s*-?bold/.test(m)?800:/bold/.test(m)?700:/black|heavy/.test(m)?900:400;
+}
+async function addFontFiles(files){
+  const cur=getFonts(),types={ttf:'font/ttf',otf:'font/otf',woff:'font/woff',woff2:'font/woff2'};
+  for(const f of files){
+    const ext=f.name.split('.').pop().toLowerCase();if(!types[ext]){toast(`${f.name}: okänt format (använd .woff2, .ttf eller .otf)`);continue;}
+    const buf=await f.arrayBuffer(),w=fontWeight(f.name,buf);
+    let bin='';const u=new Uint8Array(buf);for(let i=0;i<u.length;i+=0x8000) bin+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));
+    cur.faces=cur.faces.filter(x=>x.weight!==w);cur.faces.push({weight:w,name:f.name,data:`data:${types[ext]};base64,${btoa(bin)}`});
+  }
+  cur.faces.sort((a,b)=>a.weight-b.weight);
+  if(!write(LS_FONTS,cur)){toast('Typsnittet fick inte plats i webbläsarens lagring. Använd .woff2-filer, de är minst.');return;}
+  applyFonts();try{CH&&CH.postMessage({type:'vh:fonts'});}catch(e){}
+}
+function fontStatus(){const f=getFonts().faces;return f.length?f.map(x=>`${esc(x.name)} (${x.weight})`).join(', '):'Inget eget typsnitt inläst – systemets typsnitt används';}
 
 /* ---------------------------------------------------------------------
    PARSER – tolkar manus (Google Docs-HTML eller ren text) till en episod
@@ -436,7 +474,7 @@ function mkQuestion(raw,kind){
 function textToLines(txt){
   const out=[];let first=true;
   for(const raw of String(txt).replace(/\r/g,'').split('\n')){
-    const t=raw.replace(/ /g,' ').trim(); if(!t) continue;
+    const t=raw.replace(/\u00a0/g,' ').trim(); if(!t) continue;
     if(first){out.push({type:'h1',text:t});first=false;continue;}
     if(RX.bullet.test(t)) out.push({type:'li',text:t.replace(RX.bullet,'')});
     else if(RX.sub.test(t)) out.push({type:'h3',text:t});
@@ -445,7 +483,21 @@ function textToLines(txt){
   }
   return out;
 }
+// Docs lägger ibland flera rader i samma stycke med mjuka radbrytningar (Shift+Enter), t.ex.
+// "Background: …⏎⏎BLOCK 2". Dela upp så att varje rubrik hamnar på en egen rad.
+function expandLines(lines){
+  const out=[],isHead=p=>p.length<70&&!/\?\s*↻?$/.test(p)&&(RX.section.test(p)||RX.sub.test(p));
+  for(const ln of lines){
+    const t=String(ln.text||'').replace(/\u000b/g,'\n');
+    if(ln.type==='h1'||ln.type==='h2'||!t.includes('\n')){out.push(ln);continue;}
+    let buf=[];const flush=()=>{if(buf.join('').trim()) out.push({type:ln.type,text:buf.join('\n')});buf=[];};
+    for(const part of t.split('\n')){const q=part.trim();if(q&&isHead(q)){flush();out.push({type:RX.sub.test(q)?'h3':'h2',text:q});}else buf.push(part);}
+    flush();
+  }
+  return out;
+}
 function parseScript(lines){
+  lines=expandLines(lines);
   const ep={id:uid(),title:'',guest:'',guestTitle:'',sections:[]};
   let sec=null,kind='core',last=null,moment=null,script=null,preCount=0;
   const add=t=>(t?t+'\n':'');
@@ -455,9 +507,15 @@ function parseScript(lines){
     if(/moment/i.test(title)){moment=newCard('moment',title.replace(/^moment\s*[–—:\-]?\s*/i,'').trim()||title);sec.cards.push(moment);last=moment;}
     else if(/outro|intro|avslutning/i.test(title)){script=newCard('script','');sec.cards.push(script);last=script;}
   };
-  for(const ln of lines){
-    const text=String(ln.text||'').replace(/\u000b/g,'\n').replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').trim();
+  for(const raw of lines){
+    const text=String(raw.text||'').replace(/\u000b/g,'\n').replace(/\u00a0/g,' ').replace(/[ \t]+\n/g,'\n').replace(/^\n+/,'').trim();
     if(!text) continue;
+    // Formateringen från Docs är opålitlig (rubriker blir ibland vanlig text): känn igen blocken på texten
+    let type=raw.type;
+    if(type!=='h1'&&type!=='h2'&&type!=='h3'&&!text.includes('\n')&&text.length<70&&!/\?\s*↻?$/.test(text)){
+      if(RX.sub.test(text)) type='h3';else if(RX.section.test(text)) type='h2';
+    }
+    const ln={type,text};
     // Titel + gäst före första sektionen
     if(!sec && !ep.title && (ln.type==='h1'||ln.type==='p'||ln.type==='h2') && !RX.section.test(text)){ep.title=text.replace(/\n/g,' ');continue;}
     if(!sec && ln.type==='p' && !RX.section.test(text)){
@@ -489,6 +547,10 @@ function parseScript(lines){
       else moment.rules=add(moment.rules)+text;
       continue;
     }
+    // Inledning och fråga på separata rader hör ihop; avslutningsfrågan är en kärnfråga
+    const leadIn=last&&last.kind===kind&&(kind==='core'||kind==='guest')&&!last.followUp&&!last.background&&!/\?\s*↻?$/.test(last.text);
+    if(ln.type!=='li'&&leadIn&&/\?\s*↻?$/.test(text)){last.text+='\n'+text;continue;}
+    if(ln.type!=='li'&&/^(is there anything|finns det något)/i.test(text)){last=mkQuestion(text,'core');sec.cards.push(last);continue;}
     if(ln.type==='li' || /\?|↻/.test(text)){last=mkQuestion(text,kind);sec.cards.push(last);}
     else if(last) last.background=add(last.background)+text;
     else {last=newCard('info',text);sec.cards.push(last);}
@@ -506,7 +568,7 @@ function htmlToLines(html){
     else if(n.nodeName==='BR') s+='\n';
     else if(n.nodeType===1){const b=BLK.test(n.nodeName);if(b&&s&&!s.endsWith('\n')) s+='\n';s+=deep(n);if(b) s+='\n';}
   }return s;};
-  const clean=s=>s.replace(/ /g,' ').replace(/[ \t]+/g,' ').replace(/ *\n */g,'\n').replace(/\n{2,}/g,'\n').trim();
+  const clean=s=>s.replace(/\u00a0/g,' ').replace(/[ \t]+/g,' ').replace(/ *\n */g,'\n').replace(/\n{2,}/g,'\n').trim();
   (function walk(el){for(const n of el.children){
     const t=n.tagName;
     if(/^H[1-6]$/.test(t)) out.push({type:t==='H1'?'h1':t==='H2'?'h2':'h3',text:clean(deep(n))});
@@ -518,7 +580,7 @@ function htmlToLines(html){
   return out;
 }
 
-const SEED=/*SEED-START*/null/*SEED-END*/;
+const SEED={"id": "ep-exempel", "title": "Exempel – byt ut mot ditt manus", "guest": "Gästens namn", "guestTitle": "Titel, företag", "sections": [{"id": "s-ex1", "title": "BLOCK 1 (UPPVÄRMNING)", "cards": [{"id": "c-ex1", "kind": "core", "text": "Vad gjorde du i morse innan du kom hit?", "followUp": "", "background": "", "rules": "", "listLabel": "", "list": [], "recurring": true, "scale": 1}, {"id": "c-ex2", "kind": "core", "text": "Vilken regel skulle du ta bort om du fick?", "followUp": "", "background": "", "rules": "", "listLabel": "", "list": [], "recurring": false, "scale": 1}, {"id": "c-ex3", "kind": "guest", "text": "Du har bytt bransch flera gånger. Vad har du tagit med dig från den första?", "followUp": "Vad lämnade du helst kvar?", "background": "Bakgrund syns bara för dig. Tryck I för att visa den för programledaren.", "rules": "", "listLabel": "", "list": [], "recurring": false, "scale": 1}]}, {"id": "s-ex2", "title": "MOMENT – Rangordna", "cards": [{"id": "c-ex4", "kind": "moment", "text": "Rangordna", "followUp": "", "background": "", "rules": "Programledaren läser upp ett alternativ i taget. Gästen placerar varje alternativ på en lista från 1 till 4 utan att veta vad som kommer sedan.", "listLabel": "Frukostar", "list": ["Gröt", "Smörgås", "Yoghurt", "Bara kaffe"], "recurring": false, "scale": 1}]}, {"id": "s-ex3", "title": "OUTRO", "cards": [{"id": "c-ex5", "kind": "script", "text": "Dörren öppnas.\nGäst: Tack för att jag fick komma.\nProgramledare: Tack själv!\nGästen går ut. Programledaren står kvar.", "followUp": "", "background": "", "rules": "", "listLabel": "", "list": [], "recurring": false, "scale": 1}]}]};
 
 /* ---------------------------------------------------------------------
    Stage – samma rendering i förhandsvisning och på värdskärmen
@@ -630,7 +692,7 @@ function renderStage(el,v){
 }
 function cueVisible(v){return v&&v.cue&&(!v.cue.ttl||Date.now()<v.cue.ts+v.cue.ttl*1000);}
 function updateCue(el){
-  const v=el._v,vis=cueVisible(v),key=vis?v.cue.ts:0;
+  const v=el._v,vis=cueVisible(v),key=vis?v.cue.ts+'|'+v.cue.text:0;
   if(el._ck===key) return;el._ck=key;
   el._q.innerHTML=vis?`<div class="cue">${esc(v.cue.text)}</div>`:'';
 }
@@ -662,6 +724,7 @@ function initDisplay(){
   document.body.className='mode-display';
   document.body.innerHTML='<div class="stage" id="dStage"></div><div class="d-hint" id="dHint">Väntar på operatören…</div>';
   const stage=$('#dStage'),hint=$('#dHint');
+  addEventListener('storage',e=>{if(e.key===LS_FONTS) applyFonts();});if(CH) CH.addEventListener('message',e=>{if(e.data&&e.data.type==='vh:fonts') applyFonts();});
   let lastTs=0,gotVm=false,mirror=false;
   const layout=()=>{
     const W=innerWidth,H=innerHeight,s=Math.min(W/1920,H/1080),ox=(W-1920*s)/2,oy=(H-1080*s)/2;
@@ -704,7 +767,7 @@ const seenIds=new Set();
 function read(k){try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}}
 function write(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){return false;}}
 
-function seedData(){const ep=SEED?clone(SEED):emptyEpisode();return {episodes:[ep],activeEpisodeId:ep.id};}
+function seedData(){const ep=clone(SEED);ep.id=uid();ep.sections.forEach(s=>{s.id=uid();s.cards.forEach(c=>c.id=uid());});return {episodes:[ep],activeEpisodeId:ep.id};}
 function emptyEpisode(){return {id:uid(),title:'Ny episod',guest:'',guestTitle:'',sections:[{id:uid(),title:'BLOCK 1',cards:[newCard('core','')]}]};}
 
 const activeEp=()=>data.episodes.find(e=>e.id===data.activeEpisodeId);
@@ -733,6 +796,10 @@ function load(){
   if(!live.rec) live.rec=clone(DEFAULT_LIVE.rec);
   logs=read(LS_LOG)||{};
   if(!activeEp()) data.activeEpisodeId=data.episodes[0].id;
+  if(live.rec.on){ // webbläsaren stängdes under REC: fortsätt samma dag, annars avsluta klippet vid sista raden
+    const L=epLog(),c=L.clips.find(c=>c.n===live.rec.clip),lastMs=L.entries.reduce((m,e)=>Math.max(m,e.ms),c?c.startMs:0);
+    if(!c||Date.now()-lastMs>6*3600000){if(c&&!c.endMs){c.endMs=lastMs;c.endTc=tcWith(clipSync(c),lastMs);}live.rec=clone(DEFAULT_LIVE.rec);saveLog();}
+  }
   ensurePos();
 }
 function ensurePos(){
@@ -770,8 +837,10 @@ function viewModel(){
     info:live.showInfo?card.background:'',
     next:nextC?cardSummary(nextC):'',nextSection:nextSec&&nextSec!==sec?nextSec.title:''};
 }
+let bcSeq=0;
 function broadcast(){
-  const msg={type:'vh:vm',ts:Date.now()+performance.now()%1,vm:viewModel()};
+  bcSeq=Math.max(bcSeq+1,Date.now());
+  const msg={type:'vh:vm',ts:bcSeq,vm:viewModel()};
   try{CH&&CH.postMessage(msg);}catch(e){}
   try{if(displayWin&&!displayWin.closed) displayWin.postMessage(msg,'*');}catch(e){}
   write(LS_VM,msg);
@@ -867,7 +936,18 @@ function handleKey(k,e={}){
 /* ---- logger ---- */
 function epLog(id=data.activeEpisodeId){return logs[id]||(logs[id]={clips:[],entries:[]});}
 function saveLog(){write(LS_LOG,logs);}
-function tcAt(ms,noFrames){const sy=resolveSync(settings.tcSync,settings.fps,ms);return framesToTC(camFrames(sy,ms),FPS[sy.fps][0],noFrames);}
+function tcWith(sync,ms,noFrames){const sy=resolveSync(sync,settings.fps,ms);return framesToTC(camFrames(sy,ms),FPS[sy.fps][0],noFrames);}
+function tcAt(ms,noFrames){return tcWith(settings.tcSync,ms,noFrames);}
+const curClip=()=>live.rec&&live.rec.on?epLog().clips.find(c=>c.n===live.rec.clip):null;
+// Varje klipp bär sin egen synk (own=true om den gjordes under klippet). Äldre loggar saknar fältet.
+const clipSync=c=>c&&c.sync!==undefined?c.sync:settings.tcSync;
+// All ändring av synken går via setSync, så att pågående klipp räknas om och allt ritas om
+function setSync(sync){
+  settings.tcSync=sync;saveSettings();
+  const c=curClip();if(c){c.sync=sync?{...sync,own:true}:null;retimeClip(c.n);}
+  renderSyncStatus();renderLog();broadcast();
+}
+function stopRec(msg){if(live.rec&&live.rec.on){toggleRec();if(msg) toast(msg);}}
 function addEntry(o,ctx){
   const ms=ctx&&ctx.ms||Date.now(),cid=ctx?ctx.cardId:live.cardId,f=findCard(cid);
   const e={id:uid(),ms,tc:tcAt(ms),clip:live.rec.on?live.rec.clip:0,rec:!!live.rec.on,kind:o.kind,tag:o.tag||'',text:o.text||'',note:'',
@@ -886,7 +966,7 @@ function autoLog(){
 function toggleRec(){
   const L=epLog(),now=Date.now();
   if(!live.rec.on){
-    const n=L.clips.length+1;L.clips.push({n,startMs:now,startTc:tcAt(now),endMs:null,endTc:''});
+    const n=L.clips.reduce((m,c)=>Math.max(m,c.n),0)+1;L.clips.push({n,startMs:now,startTc:tcAt(now),endMs:null,endTc:'',sync:settings.tcSync?{...settings.tcSync,own:false}:null});
     live.rec={on:true,clip:n,lastKey:null};addEntry({kind:'rec',text:`REC start · klipp ${n}`});
     if(settings.syncOnRec){saveLog();commit();openSync({auto:true,clip:n});return;}
     toast(`● REC – klipp ${n}${settings.tcSync?'':' (tidskoden är inte synkad – datorns klocka används)'}`);
@@ -906,15 +986,19 @@ function entryLabel(e){
   const ic={card:'▸',reveal:'↳',rec:'●',stop:'■',cue:'→'}[e.kind]||'';
   return `<span class="lg-sys">${ic} ${esc(e.text)}</span>`;
 }
+function saveLogText(t){const en=epLog().entries.find(x=>x.id===t.dataset.id);if(!en) return;const v=t.innerText.replace(/\s+/g,' ').trim();if(en.kind==='note') en.text=v;else en.note=v;saveLog();}
 function renderLog(){
   const list=$('#lgList');if(!list) return;
+  const act=document.activeElement,editing=act&&act.classList&&act.classList.contains('lg-text')?act.dataset.id:null;
+  if(editing) saveLogText(act);
   const L=epLog();
   list.innerHTML=L.entries.slice().reverse().slice(0,400).map(e=>{
     const ed=e.kind==='tag'||e.kind==='note';
-    return `<div class="lg-row k-${e.kind}${e.rec?'':' norec'}"><span class="lg-rtc">${e.tc}</span><span class="lg-clip">${e.rec?'K'+e.clip:'–'}</span>
+    return `<div class="lg-row k-${e.kind}${e.rec?'':' norec'}"><span class="lg-rtc">${esc(e.tc)}</span><span class="lg-clip">${e.rec?'K'+e.clip:'–'}</span>
       <span class="lg-body">${entryLabel(e)}${ed?`<span class="lg-text" contenteditable="true" spellcheck="false" data-id="${e.id}" data-ph="${e.kind==='tag'?'+ notering':''}">${esc(e.kind==='note'?e.text:e.note)}</span>`:''}${e.kind!=='card'&&e.card?`<span class="lg-q">${esc(e.card)}</span>`:''}</span>
       <button class="ghost lg-del" data-a="log-del" data-id="${e.id}" title="Ta bort">✕</button></div>`;}).join('')
-    ||'<div class="lg-empty">Ingen logg ännu. Synka tidskoden, tryck <b>REC</b> (R) när kameran rullar och logga med knapparna ovan eller fritext (C). Varje fråga du stegar till loggas automatiskt.</div>';
+    ||'<div class="lg-empty">Ingen logg ännu. Tryck <b>REC</b> (R) när kameran rullar och logga med knapparna ovan eller fritext (C). Varje fråga du stegar till loggas automatiskt.</div>';
+  if(editing){const t=list.querySelector(`.lg-text[data-id="${editing}"]`);if(t){t.focus();const r=document.createRange();r.selectNodeContents(t);r.collapse(false);const sel=getSelection();sel.removeAllRanges();sel.addRange(r);}}
   renderRecState();
 }
 function renderRecState(){
@@ -926,7 +1010,10 @@ function renderRecState(){
 function renderLogMeta(){
   const m=$('#lgMeta');if(!m) return;const L=epLog(),S=settings;
   const hhmm=t=>new Date(t).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const sync=!S.tcSync?'<span class="warn-t">Ej synkad – datorns klocka</span>':`Kamerans TC · ${S.tcSync.fps} fps · synkad ${hhmm(S.tcSync.at)}`;
+  const old=S.tcSync&&new Date(S.tcSync.at).toDateString()!==new Date().toDateString();
+  const sync=!S.tcSync?'<span class="warn-t">Ej synkad – datorns klocka</span>'
+    :old?`<span class="warn-t">Synken är från ${new Date(S.tcSync.at).toLocaleDateString('sv-SE',{day:'numeric',month:'short'})} – synka om</span>`
+    :`Kamerans TC · ${S.tcSync.fps} fps · synkad ${hhmm(S.tcSync.at)}`;
   const c=live.rec.on&&L.clips.find(c=>c.n===live.rec.clip);
   const rec=c?`<span class="rec-t">Klipp ${c.n} · ${fmtDur(Date.now()-c.startMs)}</span> · `:`${L.clips.length} klipp · ${L.entries.filter(e=>e.kind==='tag'||e.kind==='note').length} anteckningar · `;
   const h=rec+sync;if(m._h!==h){m._h=h;m.innerHTML=h;}
@@ -1006,18 +1093,16 @@ async function collectTC(video,fps,need,o={}){
 function applySyncFrames(t,F,fps,method,quiet){
   if(MODE==='phone') return phoneSendResult(t,F,fps,method);
   const day=FPS[fps][0]*86400,first=!settings.tcSync;settings.fps=fps;
-  settings.tcSync={t0:t,baseFrames:((F%day)+day)%day,fps,method,at:Date.now()};
   if(first&&settings.tcMode==='timer') settings.tcMode='camera';
-  saveSettings();renderSyncStatus();
-  if(syncCtx&&syncCtx.clip) retimeClip(syncCtx.clip);
-  renderLog();broadcast();
+  setSync({t0:t,baseFrames:((F%day)+day)%day,fps,method,at:Date.now()});
   if(!quiet) toast('Tidskoden är synkad'+(first?' – värdskärmen visar nu kamerans tidskod':''));
 }
 // Räknar om tidskoderna för ett klipp (rader loggade innan synken blev klar)
 function retimeClip(n){
   const L=epLog(),c=L.clips.find(c=>c.n===n);if(!c) return;
-  c.startTc=tcAt(c.startMs);if(c.endMs) c.endTc=tcAt(c.endMs);
-  L.entries.forEach(e=>{if(e.clip===n&&e.rec) e.tc=tcAt(e.ms);});saveLog();
+  const sy=clipSync(c);
+  c.startTc=tcWith(sy,c.startMs);if(c.endMs) c.endTc=tcWith(sy,c.endMs);
+  L.entries.forEach(e=>{if(e.clip===n&&e.rec) e.tc=tcWith(sy,e.ms);});saveLog();
 }
 // Stäng automatiskt när synken startades av REC
 function syncDone(){
@@ -1031,7 +1116,8 @@ function applySync(t0,tcStr,method){
   if(fr===null){toast(`Förstod inte tidskoden. Skriv t.ex. 10:32:18:12 (rutor 0–${nom-1}).`);return;}
   applySyncFrames(t0,fr,fps,method);syncDone();
 }
-function stopCam(){if(camStream) camStream.getTracks().forEach(t=>t.stop());camStream=null;}
+let camGen=0;
+function stopCam(){camGen++;if(camStream) camStream.getTracks().forEach(t=>t.stop());camStream=null;}
 const IPHONE_RX=/iphone|continuity|ipad/i;
 let devWatch=null;
 // Startar kameran. Utan deviceId: senast valda kamera, annars iPhone om den finns, annars standard.
@@ -1044,13 +1130,18 @@ async function startCam(deviceId,explicit,noPick){
     const saved=devs.find(d=>d.deviceId&&d.deviceId===settings.camDeviceId),ip=devs.find(d=>IPHONE_RX.test(d.label));
     deviceId=(saved||ip||{}).deviceId||null;
   }
-  stopCam();msg.textContent='Startar kamera …';
+  stopCam();const gen=camGen;msg.textContent='Startar kamera …';
   const tries=deviceId?[{deviceId:{exact:deviceId},width:{ideal:1920}},{deviceId:{exact:deviceId}}]
     :MODE==='phone'?[{facingMode:{ideal:'environment'},width:{ideal:1920}},{facingMode:'environment'},true]:[{width:{ideal:1920}},true];
   let err=null;
   for(const video of tries){
-    try{camStream=await navigator.mediaDevices.getUserMedia({audio:false,video});err=null;break;}catch(e){err=e;if(e.name!=='OverconstrainedError') break;}
+    let st=null;
+    try{st=await navigator.mediaDevices.getUserMedia({audio:false,video});}catch(e){err=e;if(e.name!=='OverconstrainedError') break;continue;}
+    // En nyare start eller ett stängt fönster har hunnit emellan: släpp kameran direkt
+    if(gen!==camGen||!document.contains(v)){st.getTracks().forEach(t=>t.stop());return;}
+    camStream=st;err=null;break;
   }
+  if(gen!==camGen) return;
   if(err){
     const why={NotAllowedError:'Kameran är blockerad. Tillåt kamera för webbläsaren (adressfältet, och Systeminställningar → Integritet → Kamera).',
       NotReadableError:'Kameran används redan av en annan app (FaceTime, Zoom, Photo Booth …) eller är inte redo. Stäng den andra appen och försök igen.',
@@ -1059,7 +1150,9 @@ async function startCam(deviceId,explicit,noPick){
     if(deviceId&&!explicit){toast('Kunde inte starta vald kamera – använder standardkameran');return startCam(null,true,true);} // fall tillbaka
     return;
   }
-  v.srcObject=camStream;await v.play().catch(()=>{});msg.textContent='';
+  v.srcObject=camStream;await v.play().catch(()=>{});
+  if(gen!==camGen||!camStream) return;   // stängdes medan videon startade
+  msg.textContent='';
   const cur=camStream.getVideoTracks()[0];
   settings.camDeviceId=cur.getSettings().deviceId||null;saveSettings();
   await fillDevices();
@@ -1101,13 +1194,14 @@ async function calibrate(){
   const v=$('#syVid');if(!v||!v.videoWidth){toast('Starta kameran först');return;}
   if(ocrRun){ocrRun.stop=true;}
   const fps=$('#syFps').value,run=ocrRun={stop:false};
-  if(MODE==='phone') phoneSendMsg({type:'calib-start'});else{live.calib=true;commit();if($('#syCal')) $('#syCal').hidden=false;}
+  if(MODE==='phone') phoneSendMsg({type:'calib-start',fps});else{live.calib=true;commit();if($('#syCal')) $('#syCal').hidden=false;}
   syStatus('Rikta kameran mot värdskärmen eller den stora tidskoden nedan …');
   let r=null;try{r=await collectTC(v,fps,6,{run,status:syStatus,timeout:40000,calib:true,roi:null});}catch(e){syStatus('Textigenkänningen kunde inte laddas.');}
   if(MODE==='phone') phoneSendMsg({type:'calib-end'});else{live.calib=false;commit();if($('#syCal')) $('#syCal').hidden=true;}if(ocrRun===run) ocrRun=null;
   if(!r){if(!run.stop) syStatus('Kunde inte mäta. Försök igen, eller behåll standardvärdet.');return;}
   const lat=-(midnight(Date.now())+r.off*1000/r.real);
-  settings.camLatency=Math.round(Math.min(2000,Math.max(-2000,lat))); // på mobilen ingår även klockskillnaden mot datornsaveSettings();renderSyncStatus();
+  settings.camLatency=Math.round(Math.min(2000,Math.max(-2000,lat))); // på mobilen ingår även klockskillnaden mot datorn
+  saveSettings();renderSyncStatus();const li=$('#syLatIn');if(li) li.value=settings.camLatency;
   syStatus(`✓ Fördröjning uppmätt: ${settings.camLatency} ms (${(settings.camLatency/1000*FPS[fps][1]).toFixed(1)} rutor). Synka nu mot kameran.`);
 }
 function syncSnap(){
@@ -1142,7 +1236,7 @@ function bindRoi(){
     settings.ocrRoi={x:Math.min(st.x,x),y:Math.min(st.y,y),w:Math.abs(x-st.x),h:Math.abs(y-st.y)};showRoi();});
   view.addEventListener('pointerup',()=>{if(!st) return;st=null;const r=settings.ocrRoi;if(r&&(r.w<0.02||r.h<0.01)) settings.ocrRoi=null;saveSettings();showRoi();
     if(settings.ocrRoi) syStatus('Ruta vald. Tryck Synka automatiskt.');});
-  $('#syVid').addEventListener('loadedmetadata',showRoi);addEventListener('resize',showRoi);
+  $('#syVid').addEventListener('loadedmetadata',showRoi);if(!bindRoi.done){bindRoi.done=true;addEventListener('resize',showRoi);}
 }
 function renderSyncStatus(){
   const el=$('#syStatus'),S=settings.tcSync;
@@ -1178,7 +1272,7 @@ function openSync(opts={}){
       <div class="row" id="syEnter" hidden style="margin-top:8px"><label style="flex:1">Tidskoden i bilden<input id="syTc" placeholder="10:32:18:12" autocomplete="off"></label><button class="primary" data-a="sy-apply-cam" style="align-self:flex-end">Synka</button></div>
       <details class="sy-adv"><summary>Precision · kamerafördröjning <b id="syLat"></b></summary>
         <p class="hint">Webbkamera och kamerans skärm visar bilden några rutor sent. Mät fördröjningen en gång per kamera: tryck Mät och rikta kameran mot värdskärmen (eller den stora tidskoden som visas här).</p>
-        <div class="row"><button data-a="sy-calib">Mät fördröjning</button><label>Eller ange (ms)<input id="syLatIn" type="number" min="0" max="500" value="${settings.camLatency}" style="width:100px"></label></div>
+        <div class="row"><button data-a="sy-calib">Mät fördröjning</button><label>Eller ange (ms)<input id="syLatIn" type="number" min="-2000" max="2000" value="${settings.camLatency}" style="width:100px"></label></div>
         <div class="sy-cal" id="syCal" hidden><div data-cal></div></div>
       </details>
     </div>
@@ -1208,14 +1302,13 @@ function openSync(opts={}){
   </div>`);
   renderSyncStatus();bindRoi();
   if(opts.auto&&phoneOnline()){showPane('phone');phoneRequest();}
-  else if(opts.auto) startCam().then(()=>syncAuto());
-  $('#syFps').addEventListener('change',()=>{if(settings.tcSync){settings.tcSync=null;renderSyncStatus();renderLog();toast('Bildfrekvensen ändrad – synka igen');}settings.fps=$('#syFps').value;saveSettings();});
+  else startCam().then(()=>{if(opts.auto&&syncCtx===opts) syncAuto();});
+  $('#syFps').addEventListener('change',()=>{settings.fps=$('#syFps').value;if(settings.tcSync){setSync(null);toast('Bildfrekvensen ändrad – synka igen');}else{saveSettings();broadcast();}});
   $('#syDev').addEventListener('change',e=>startCam(e.target.value,true));
   $('#syPhoneHelp').addEventListener('toggle',e=>{e.target.dataset.auto='0';});
   $('#syTc').addEventListener('keydown',e=>{if(e.key==='Enter') applySync(snap&&snap.t,e.target.value,'kamerabild');});
-  $('#syLatIn').addEventListener('change',e=>{settings.camLatency=Math.max(0,Math.min(500,+e.target.value||0));saveSettings();renderSyncStatus();});
+  $('#syLatIn').addEventListener('change',e=>{settings.camLatency=Math.max(-2000,Math.min(2000,Math.round(+e.target.value||0)));e.target.value=settings.camLatency;saveSettings();renderSyncStatus();});
   $('#syCan').addEventListener('click',e=>{const c=e.currentTarget,r=c.getBoundingClientRect();c.style.transformOrigin=`${(e.clientX-r.left)/r.width*100}% ${(e.clientY-r.top)/r.height*100}%`;c.classList.toggle('zoom');});
-  startCam();
 }
 function syncAction(a,el){
   switch(a){
@@ -1227,7 +1320,7 @@ function syncAction(a,el){
     case 'sy-apply-cam':if(!snap){toast('Ta en bild först');return true;}applySync(snap.t,$('#syTc').value,'kamerabild');return true;
     case 'sy-apply-man':applySync(Date.now(),$('#syManTc').value,'manuellt');return true;
     case 'sy-apply-tod':applySync(0,'','klockslag');return true;
-    case 'sy-clear':settings.tcSync=null;saveSettings();renderSyncStatus();renderLog();broadcast();return true;
+    case 'sy-clear':setSync(null);return true;
   }
   return false;
 }
@@ -1237,8 +1330,11 @@ function syncAction(a,el){
 // och skickar den som en kort kod. Koden är giltig oavsett när den kommer fram.
 const RELAY='https://ntfy.sh',B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ',DAY=86400000,QR_SRC='https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
 let relayES=null,lastPhone=0;const relaySeen=new Set();
+// Koden bär skillnaden (ms) mellan kamerans tidskod och klockan, modulo ett tidskodsdygn.
+// Ett tidskodsdygn är nom*86400 rutor, vilket vid 23.976/29.97/59.94 är längre än 24 timmar.
+const tcDayMs=fps=>Math.round(FPS[fps][0]*86400/FPS[fps][1]*1000);
 function makeSyncCode(t,F,fps){
-  const real=FPS[fps][1];let d=F/real*1000-(t%DAY);d=Math.round(((d%DAY)+DAY)%DAY)%DAY;
+  const real=FPS[fps][1],D=tcDayMs(fps);let d=(F/real*1000-t)%D;d=Math.round((d+D)%D)%D;
   let v=d*8+Object.keys(FPS).indexOf(fps),b='';for(let i=0;i<6;i++){b=B32[v%32]+b;v=Math.floor(v/32);}
   const ck=B32[[...b].reduce((a,c)=>a+B32.indexOf(c)*7,0)%32];return b.slice(0,3)+'-'+b.slice(3)+ck;
 }
@@ -1247,16 +1343,18 @@ function readSyncCode(str){
   if(c.length!==7) return null;const b=c.slice(0,6);
   if(B32[[...b].reduce((a,x)=>a+B32.indexOf(x)*7,0)%32]!==c[6]) return null;
   let v=0;for(const x of b){const i=B32.indexOf(x);if(i<0) return null;v=v*32+i;}
-  const fps=Object.keys(FPS)[v%8],dms=Math.floor(v/8);return fps&&dms<DAY?{fps,dms}:null;
+  const fps=Object.keys(FPS)[v%8],dms=Math.floor(v/8);return fps&&dms<tcDayMs(fps)?{fps,dms}:null;
 }
 function relayListen(sess,onMsg){
   if(relayES) relayES.close();if(!sess) return;
-  relayES=new EventSource(`${RELAY}/vardskarm-${sess}/sse`);
+  relayES=new EventSource(`${RELAY}/vardskarm-${sess}/sse?since=20s`); // since: hämta ikapp efter avbrott, dubbletter filtreras
   relayES.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.event&&m.event!=='message') return;const p=JSON.parse(m.message);if(!p||relaySeen.has(p.id)) return;relaySeen.add(p.id);onMsg(p);}catch(x){}};
 }
 function relaySend(sess,obj){if(!sess) return Promise.resolve();obj.id=uid();return fetch(`${RELAY}/vardskarm-${sess}`,{method:'POST',body:JSON.stringify(obj)}).catch(()=>toast('Kunde inte nå ntfy.sh – kontrollera internet'));}
 // --- datorn ---
-const phoneOnline=()=>Date.now()-lastPhone<70000;
+// Mobilen räknas som parad om den hört av sig under passet; vid REC frågar vi och väntar på kvittens
+const phoneOnline=()=>Date.now()-lastPhone<12*3600000;
+let phoneWaitT=null;
 function phoneUrl(){
   const base=/^https?:/.test(location.protocol)?location.href.split('#')[0]:(settings.publicUrl||'').trim();
   return base?`${base.split('#')[0]}#phone&s=${settings.phoneSession}&f=${encodeURIComponent((settings.tcSync&&settings.tcSync.fps)||settings.fps)}`:'';
@@ -1265,19 +1363,27 @@ function ensurePhoneSession(){if(!settings.phoneSession){settings.phoneSession=A
 function onPhoneMsg(m){
   if(m.from!=='phone') return;
   lastPhone=Date.now();renderPhoneConn();
+  clearTimeout(phoneWaitT);
+  if(m.type==='working'){const pc=$('#phConnL');if(pc) pc.innerHTML=m.auto?'Mobilen läser av tidskoden …':'<span class="warn-t">Mobilen är ansluten men automatisk synk är avstängd på mobilen. Tryck Synka där.</span>';}
   if(m.type==='res'){if(applySyncCode(m.code,'mobil')) relaySend(settings.phoneSession,{from:'laptop',type:'ack',code:m.code});}
-  if(m.type==='calib-start'){live.calib=true;commit();}
+  if(m.type==='calib-start'){if(FPS[m.fps]){settings.fps=m.fps;saveSettings();}live.calib=true;commit();
+    clearTimeout(onPhoneMsg.t);onPhoneMsg.t=setTimeout(()=>{if(live.calib){live.calib=false;commit();}},60000);}
   if(m.type==='calib-end'){live.calib=false;commit();}
 }
 function applySyncCode(code,method){
   const r=readSyncCode(code);if(!r){toast('Ogiltig kod – kontrollera tecknen');return false;}
-  const now=Date.now(),F=((now%DAY)+r.dms)/1000*FPS[r.fps][1];
+  const now=Date.now(),D=tcDayMs(r.fps),F=((now%D)+r.dms)/1000*FPS[r.fps][1];
   applySyncFrames(now,F,r.fps,method);if($('#syFps')) $('#syFps').value=r.fps;
   const ps=$('#syOcr');if(ps) ps.textContent='✓ Synkad från mobilen';const pc=$('#phConnL');if(pc) pc.innerHTML='<span class="ok-t">✓ Synk mottagen från mobilen</span>';
   syncDone();return true;
 }
-function phoneRequest(){ensurePhoneSession();relaySend(settings.phoneSession,{from:'laptop',type:'req',fps:$('#syFps')?$('#syFps').value:settings.fps});const pc=$('#phConnL');if(pc) pc.innerHTML='Väntar på mobilen …';}
-function renderPhoneConn(){const pc=$('#phConnL');if(pc&&!/Väntar|✓/.test(pc.textContent)) pc.innerHTML=phoneOnline()?'<span class="ok-t">● Mobilen är ansluten</span>':'<span class="muted">Ingen mobil ansluten ännu</span>';}
+function phoneRequest(){
+  ensurePhoneSession();relaySend(settings.phoneSession,{from:'laptop',type:'req',fps:$('#syFps')?$('#syFps').value:settings.fps});
+  const pc=$('#phConnL');if(pc) pc.innerHTML='Väntar på mobilen …';
+  clearTimeout(phoneWaitT);phoneWaitT=setTimeout(()=>{const pc=$('#phConnL');
+    if(pc) pc.innerHTML='<span class="warn-t">Mobilen svarar inte.</span> Är mobilsidan öppen och skärmen tänd? Skanna QR-koden igen, eller välj fliken Med kamera.';},6000);
+}
+function renderPhoneConn(){const pc=$('#phConnL');if(pc&&!/Väntar|läser av|✓/.test(pc.textContent)) pc.innerHTML=lastPhone?`<span class="ok-t">● Mobilen är parad</span> <span class="muted">(hördes senast ${new Date(lastPhone).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})})</span>`:'<span class="muted">Ingen mobil ansluten ännu</span>';}
 async function renderPhonePane(){
   ensurePhoneSession();renderPhoneConn();
   const box=$('#phQr'),url=phoneUrl();if(!box) return;
@@ -1334,96 +1440,194 @@ function initPhone(){
       if(m.from!=='laptop') return;
       $('#phConn').innerHTML='<span class="ok-t">● Ansluten till datorn</span>';
       if(m.type==='ack'){const a=$('#phAck');if(a) a.innerHTML='<span class="ok-t">✓ Datorn har tagit emot synken</span>';}
-      if(m.type==='req'&&$('#phAuto').checked&&!ocrRun){if(FPS[m.fps]) $('#syFps').value=m.fps;$('#syOcr').textContent='Datorn tryckte REC – läser av …';syncAuto();}
+      if(m.type==='req'){const go=$('#phAuto').checked&&!ocrRun;phoneSendMsg({type:'working',auto:go});
+        if(go){if(FPS[m.fps]){$('#syFps').value=m.fps;settings.fps=m.fps;}$('#syOcr').textContent='Datorn bad om synk – läser av …';syncAuto();}}
     });
     phoneSendMsg({type:'hello'}).then(()=>{$('#phConn').innerHTML='<span class="ok-t">● Ansluten</span>';});
-    setInterval(()=>phoneSendMsg({type:'ping'}),25000);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') phoneSendMsg({type:'hello'});});
   }
   let lock=null;const req=async()=>{try{if('wakeLock' in navigator&&document.visibilityState==='visible') lock=await navigator.wakeLock.request('screen');}catch(e){}};
   document.addEventListener('visibilitychange',req);req();
 }
 
 /* ---- export av logg ---- */
-const md=s=>String(s||'').replace(/\|/g,'\\|').replace(/\n/g,' ');
-function entryText(e){return e.kind==='tag'?e.tag+(e.note?' – '+e.note:''):e.text;}
-function buildMarkdown(targetLen){
-  const ep=activeEp(),L=epLog(),S=settings,E=L.entries.slice().sort((a,b)=>a.ms-b.ms);
-  const segs={},notes={},loose=[];let open=null;
+const one=s=>String(s??'').replace(/\s+/g,' ').trim();           // en rad
+const cell=s=>one(s).replace(/\|/g,'\\|');                       // tabellcell
+function syncLabel(sy){
+  if(!sy) return 'datorns klocka – INTE synkad mot kameran';
+  const how={'automatisk avläsning':'avläst automatiskt, inom ca 2 rutor','mobil':'avläst med mobilen, inom ca 2 rutor','kod från mobilen':'avläst med mobilen, inom ca 2 rutor',
+    'kamerabild':'avläst ur stillbild, inom ca 3 rutor','manuellt':'synkad för hand, ca ±0,2 s','klockslag':'kameran går på klockslag, datorns klocka används'}[sy.method]||sy.method;
+  return `kamerans tidskod (${how})`+(sy.own===false?`, synkad före klippet kl. ${new Date(sy.at).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})}`:'');
+}
+// Tolkar loggen: när varje kort visades (IN/OUT), och vilka taggar och kommentarer som hör till det
+function analyseLog(ep,L){
+  const E=L.entries.slice().sort((a,b)=>a.ms-b.ms),num={},segs=[];let n=0;
+  ep.sections.forEach(s=>s.cards.forEach(c=>{num[c.id]=++n;}));
+  // 1. Fönster: från att ett kort visas till nästa kort eller REC-stopp
+  let open=null;const close=e=>{if(open){open.out=e;open=null;}};
   for(const e of E){
-    if(e.kind==='card'){if(open){open.out=e;}open={cardId:e.cardId,inE:e,out:null};(segs[e.cardId]=segs[e.cardId]||[]).push(open);}
-    else if(e.kind==='stop'){if(open){open.out=e;open=null;}}
-    else if(['tag','note','cue','reveal'].includes(e.kind)){if(e.cardId) (notes[e.cardId]=notes[e.cardId]||[]).push(e);else loose.push(e);}
+    if(e.kind==='card'&&e.rec){close(e);open={cardId:e.cardId,clip:e.clip,inE:e,out:null,n:0,events:[]};segs.push(open);}
+    else if(e.kind==='stop'||e.kind==='rec') close(e.kind==='stop'?e:null);
+    else if(open&&e.rec&&e.cardId===open.cardId&&e.kind!=='reveal') open.n++;
   }
-  const sy=S.tcSync,out=[];
-  out.push(`# Grovklippsunderlag – ${ep.title}`,'');
-  out.push(`- **Gäst:** ${ep.guest}${ep.guestTitle?', '+ep.guestTitle:''}`);
-  if(E.length) out.push(`- **Inspelningsdag:** ${new Date(E[0].ms).toLocaleDateString('sv-SE')}`);
-  out.push(`- **Tidskod:** ${sy?`kamerans tidskod, ${sy.fps} fps (synkad ${new Date(sy.at).toLocaleString('sv-SE')} via ${sy.method}; noggrannhet ungefär ±0,2 s)`:`datorns klocka, ${S.fps} fps – INTE synkad mot kameran`}`);
-  if(targetLen) out.push(`- **Mållängd:** ${targetLen}`);
-  if(L.clips.length) out.push(`- **Klipp (REC):** `+L.clips.map(c=>`K${c.n} ${c.startTc}–${c.endTc||'pågår'}${c.endMs?` (${fmtDur(c.endMs-c.startMs)})`:''}`).join(' · '));
-  out.push('','## Instruktion','',
-`Du är en erfaren klippare och hjälper mig att grovklippa en intervju. Du får (1) det här underlaget: manus med frågorna i ordning och min livelogg med kamerans tidskod, och (2) ett transkript av inspelningen med samma tidskod.
+  // REC som aldrig stoppades: stäng fönstret vid klippets slut om det är känt
+  segs.forEach(g=>{if(!g.out){const c=L.clips.find(c=>c.n===g.clip);if(c&&c.endMs) g.out={kind:'stop',ms:c.endMs,tc:c.endTc};}});
+  // 2. Snabba förbipasseringar (under 3 s utan taggar eller kommentarer) räknas inte som att kortet visades
+  const keep=segs.filter(g=>!g.out||g.out.kind==='stop'||g.n||g.out.ms-g.inE.ms>=3000);
+  // 3. Samma kort direkt igen (hopp fram och tillbaka) slås ihop till ett fönster
+  const wins=[];for(const g of keep){const p=wins[wins.length-1];
+    if(p&&p.cardId===g.cardId&&p.clip===g.clip&&p.out&&p.out.kind!=='stop'&&g.inE.ms-p.out.ms<=5000) p.out=g.out;else wins.push(g);}
+  const byCard={},notes={},loose=[];
+  wins.forEach((g,i)=>{g.prev=wins[i-1]&&wins[i-1].clip===g.clip?wins[i-1]:null;(byCard[g.cardId]=byCard[g.cardId]||[]).push(g);});
+  // 4. Lägg varje tagg, kommentar och följdfråga i sitt fönster
+  for(const e of E){
+    if(!['tag','note','cue','reveal'].includes(e.kind)) continue;
+    if(!e.cardId||!num[e.cardId]){if(e.kind!=='reveal') loose.push(e);continue;}
+    const g=e.rec?wins.find(g=>g.cardId===e.cardId&&g.clip===e.clip&&e.ms>=g.inE.ms&&(!g.out||e.ms<=g.out.ms)):null;
+    // Tryckt strax efter ett kortbyte: gäller troligen svaret på föregående fråga
+    const late=(e.kind==='tag'||e.kind==='note')&&g&&g.prev&&g.prev.cardId!==e.cardId&&e.ms-g.inE.ms<6000?{sec:Math.round((e.ms-g.inE.ms)/1000),prev:num[g.prev.cardId]}:null;
+    if(g) g.events.push({e,late});else if(e.kind!=='reveal') (notes[e.cardId]=notes[e.cardId]||[]).push({e,late:null});
+  }
+  return {E,num,byCard,notes,loose,wins};
+}
+// En loggrad som text i exporten
+function entryMd(e,bold){
+  if(e.kind==='tag') return (bold?`**${one(e.tag)}**`:`Tagg: ${one(e.tag)}`)+(e.note?' – '+one(e.note):'');
+  if(e.kind==='note') return 'Kommentar: '+one(e.text);
+  if(e.kind==='cue') return one(e.text).replace(/^Till värden:/,'Till programledaren:');
+  if(e.kind==='reveal') return /^Följdfråga:/.test(e.text)?'Följdfrågan visas':one(e.text)+' visas';
+  if(e.kind==='card') return 'Kortet visas';
+  return one(e.text);
+}
+function tagGuide(tags){
+  const pos=[],neg=[],re=[],other=[];
+  for(const t of tags){
+    if(/omtag|ta om|retake/i.test(t)) re.push(t);
+    else if(/klipp bort|stryk|strul|tappa|dålig|fel|inte bra|cut|bad/i.test(t)) neg.push(t);
+    else if(/bra|citat|stark|guld|skratt|rolig|använd|bäst|good|great|quote/i.test(t)) pos.push(t);
+    else other.push(t);
+  }
+  const q=a=>a.map(t=>`"${t}"`).join(', '),out=[];
+  if(pos.length) out.push(`- Prioritera material märkt ${q(pos)}.`);
+  if(neg.length) out.push(`- Använd inte material märkt ${q(neg)}, om det inte behövs för sammanhanget.`);
+  if(re.length) out.push(`- ${q(re)} betyder att frågan eller svaret togs om. Använd normalt den senare tagningen och säg vilken du valde.`);
+  if(other.length) out.push(`- Övriga taggar (${q(other)}): tolka dem efter ordalydelsen.`);
+  return out;
+}
+function buildMarkdown(goal){
+  const ep=activeEp(),L=epLog(),S=settings,A=analyseLog(ep,L),{E,num}=A,out=[];
+  const clips=L.clips,fps=(clips.map(c=>clipSync(c)).find(Boolean)||{}).fps||S.fps;
+  const noRec=e=>e.rec?'':' _(loggad utanför REC)_';
+  const dur=(a,b)=>fmtDur(b-a);
+  out.push(`# Grovklippsunderlag: ${one(ep.title)||'Namnlös episod'}`,'');
+  if(ep.guest) out.push(`- Gäst: ${one(ep.guest)}${ep.guestTitle?', '+one(ep.guestTitle):''}`);
+  if(E.length) out.push(`- Inspelad: ${new Date(E[0].ms).toLocaleDateString('sv-SE')}`);
+  out.push(`- Tidskod: TT:MM:SS:RR (timmar, minuter, sekunder, rutor), ${fps} bilder per sekund`);
+  if(goal) out.push(`- Mål för klippet: ${one(goal)}`);
+  out.push('','## Uppdrag','',
+`Du är en erfaren klippare och ska ta fram ett grovklipp av en intervju. Du har två källor:
 
-1. Hitta varje fråga i transkriptet med hjälp av tidskoden för när den ställdes ("Ställd IN → OUT"). Mina kommentarer loggades när jag tryckte, oftast 2–10 sekunder efter det de syftar på.
-2. Välj den bästa versionen av varje svar. Prioritera det som är märkt ${S.logTags.slice(0,2).map(t=>'"'+t+'"').join(' och ')}${S.logTags.includes('Citat')?' eller "Citat"':''}. Uteslut det som är märkt "Klipp bort". Vid "Omtag" gäller normalt den senare tagningen.
-3. Föreslå ett grovklipp i manusordning, eller i en bättre ordning om du motiverar det${targetLen?`, med en total längd runt ${targetLen}`:''}. Svara med en tabell: Nr | Innehåll | IN | OUT | Längd | Motivering.
-4. Lista därefter de starkaste citaten med tidskod, och flagga allt du är osäker på.
+1. Det här underlaget: manuset med frågorna numrerade F1, F2 … i manusordning, och min logg från inspelningen. Loggen fördes live och varje rad har kamerans tidskod.
+2. Ett transkript av inspelningen med tidskod, som jag bifogar separat.
 
-Använd bara tidskoder som finns i transkriptet och hitta inte på några repliker.`,'');
-  out.push('## Manus med logg (manusordning)','');
-  let n=0;
+### Så läser du loggen
+
+- "Visad IN → OUT" är när kortet med frågan visades för programledaren och när nästa kort visades. Raderna under hör till den tagningen, i tidsordning. Frågan ställs oftast några sekunder efter IN, och svaret tar slut strax före OUT. Använd tiderna som sökfönster i transkriptet, inte som färdiga klippunkter.
+- Taggar och kommentarer loggades när jag tryckte, oftast 2–10 sekunder efter det de syftar på. Rader märkta "direkt efter kortbyte" gäller troligen svaret på föregående fråga.
+- Kommentarer är mina egna anteckningar. "Till programledaren" är meddelanden jag skickade till programledarens skärm under inspelningen.
+${tagGuide([...new Set([...S.logTags,...E.filter(e=>e.kind==='tag').map(e=>e.tag)])]).join('\n')}
+
+### Gör så här
+
+1. Leta upp varje visad fråga i transkriptet inom sitt sökfönster. En fråga kan ha visats flera gånger (omtag). Hitta var svaret börjar och slutar.
+2. Välj ut det starkaste materialet med hjälp av mina taggar och kommentarer, och din egen bedömning av innehållet.
+3. Föreslå ett grovklipp${goal?` som uppfyller målet ovan (${one(goal)})`:''}. Följ manusordningen om inte en annan ordning blir tydligt bättre, och motivera i så fall bytet.
+4. Svara med en tabell: Nr | Fråga (F-nr) | Klipp | IN | OUT | Längd | Första orden … sista orden | Motivering. Sätt IN vid första ordet som ska vara med och OUT efter det sista.
+5. Efter tabellen: total längd, de starkaste citaten ordagrant med tidskod, och en lista över det du är osäker på.
+
+### Regler
+
+- Använd bara tidskoder som finns i transkriptet, och citera ordagrant. Hitta inte på repliker.
+- Om transkriptets tider räknas från filens början i stället för kamerans tidskod: räkna om med filens starttidskod. Tabellen Klipp nedan visar tidskoden när jag tryckte REC i appen, vilket är några sekunder efter att kameran startade. Fråga mig om filens exakta starttidskod om du behöver den.
+- Om loggen och transkriptet inte går ihop, till exempel om en fråga saknas i sitt sökfönster, ska du säga det i stället för att gissa.`,'');
+  out.push('## Klipp','');
+  if(clips.length){
+    out.push('| Klipp | Start | Slut | Längd | Tidskodens källa |','|---|---|---|---|---|');
+    clips.forEach(c=>out.push(`| K${c.n} | ${c.startTc} | ${c.endTc||'pågår'} | ${c.endMs?dur(c.startMs,c.endMs):'–'} | ${cell(syncLabel(clipSync(c)))} |`));
+    if(clips.some(c=>!clipSync(c))) out.push('','Obs: klipp utan synk har tidskoder från datorns klocka. De stämmer bara mot kameran om kameran går på klockslag.');
+  }else out.push('_Ingen inspelning loggad ännu (REC har inte använts)._');
+  out.push('','## Manus med logg','');
   for(const s of ep.sections){
-    out.push(`### ${s.title}`,'');
+    out.push(`### ${one(s.title)}`,'');
     for(const c of s.cards){
-      n++;out.push(`**${n}. ${cardSummary(c)}** _(${KINDS[c.kind]})_`);
-      if(c.followUp&&c.kind!=='script') out.push(`Följdfråga: ${c.followUp}`);
-      if(c.kind==='moment'&&c.list.length) out.push(`Alternativ: ${c.list.join(', ')}`);
-      if(c.kind==='script') out.push('Manus: '+c.text.replace(/\n/g,' / '));
-      const sg=(segs[c.id]||[]).filter(g=>!g.out||g.out.kind==='stop'||g.out.ms-g.inE.ms>=3000); // hoppa över snabba förbipasseringar
-      if(!sg.length) out.push('- _Ingen loggad tid – troligen inte ställd under REC_');
-      sg.forEach(g=>out.push(`- Ställd \`${g.inE.tc}\` → \`${g.out?g.out.tc:'…'}\` (K${g.inE.clip}${g.out?', '+fmtDur(g.out.ms-g.inE.ms):''})`));
-      (notes[c.id]||[]).forEach(e=>out.push(`- \`${e.tc}\` ${e.kind==='tag'?`**${e.tag}**${e.note?' – '+e.note:''}`:e.kind==='note'?'Kommentar: '+e.text:e.text}`));
+      const k=c.kind,head=k==='script'?'(manus, se nedan)':k==='moment'?one(c.text)||'Moment':one(c.text)||'(tom)';
+      out.push(`**F${num[c.id]} · ${KINDS[k]||k}:** ${head}`);
+      if(c.followUp&&k!=='script') out.push(`- Följdfråga: ${one(c.followUp)}`);
+      if(k==='moment'&&c.rules) out.push(`- Regler: ${one(c.rules)}`);
+      if(k==='moment'&&c.list.length) out.push(`- Alternativ${c.listLabel?' ('+one(c.listLabel)+')':''}: ${c.list.map(one).join('; ')}`);
+      if(k==='script') c.text.split('\n').map(one).filter(Boolean).forEach(l=>out.push(`  > ${l}`));
+      if(c.background) out.push(`- Bakgrund (min anteckning): ${one(c.background)}`);
+      const sg=A.byCard[c.id]||[];
+      if(!sg.length) out.push(live.skipped[c.id]?'- Inte visad (överhoppad).':'- Inte visad under REC.');
+      sg.forEach(g=>{
+        out.push(`- Visad K${g.clip} \`${g.inE.tc}\` → \`${g.out?g.out.tc:'pågår'}\`${g.out?' ('+dur(g.inE.ms,g.out.ms)+')':''}`);
+        g.events.forEach(({e,late})=>out.push(`  - \`${e.tc}\` ${entryMd(e,true)}${late?` _(direkt efter kortbyte, ${late.sec} s; gäller troligen F${late.prev})_`:''}`));
+      });
+      (A.notes[c.id]||[]).forEach(({e})=>out.push(`- \`${e.tc}\` ${entryMd(e,true)}${noRec(e)}`));
       out.push('');
     }
   }
-  if(loose.length){out.push('## Övriga anteckningar','');loose.forEach(e=>out.push(`- \`${e.tc}\` ${entryText(e)}`));out.push('');}
-  out.push('## Kronologisk logg','','| Tidskod | Klipp | Typ | Kort | Kommentar |','|---|---|---|---|---|');
-  const TY={card:'Fråga',reveal:'Visat',rec:'REC',stop:'Stopp',cue:'Till värden',tag:'Tagg',note:'Kommentar'};
-  E.forEach(e=>out.push(`| ${e.tc} | ${e.rec?'K'+e.clip:'–'} | ${TY[e.kind]||e.kind} | ${md(e.card)} | ${md(e.kind==='card'?'':entryText(e))} |`));
-  return out.join('\n');
+  if(A.loose.length){
+    out.push('## Övriga anteckningar','','Rader som inte hör till något kort i det nuvarande manuset (kortet har tagits bort eller manuset har importerats om).','');
+    A.loose.forEach(e=>out.push(`- \`${e.tc}\` ${entryMd(e,true)}${e.card?` _(kort: ${one(e.card).slice(0,80)})_`:''}${noRec(e)}`));
+    out.push('');
+  }
+  if(E.length){
+    out.push('## Tidslinje','','Samma logg i tidsordning.','','| Tidskod | Klipp | Fråga | Händelse |','|---|---|---|---|');
+    E.forEach(e=>out.push(`| ${e.tc} | ${e.rec?'K'+e.clip:'–'} | ${e.cardId&&num[e.cardId]&&!['rec','stop'].includes(e.kind)?'F'+num[e.cardId]:'–'} | ${cell(entryMd(e,false))} |`));
+  }
+  return out.join('\n').replace(/\n{3,}/g,'\n\n').trim()+'\n';
 }
 function buildCsv(){
-  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const rows=[['Tidskod','Klipp','REC','Typ','Tagg','Kommentar','Sektion','Kort']];
-  epLog().entries.slice().sort((a,b)=>a.ms-b.ms).forEach(e=>rows.push([e.tc,e.rec?'K'+e.clip:'',e.rec?'ja':'nej',e.kind,e.tag,e.kind==='tag'?e.note:e.text,e.section,e.card]));
-  return '\ufeff'+rows.map(r=>r.map(q).join(';')).join('\r\n');
+  const safe=v=>{v=String(v??'');return /^[=+\-@\t\r]/.test(v)?"'"+v:v;};   // hindra att kalkylprogram tolkar text som formel
+  const q=v=>'"'+safe(v).replace(/"/g,'""')+'"';
+  const L=epLog(),A=analyseLog(activeEp(),L),start={};L.clips.forEach(c=>start[c.n]=c.startMs);
+  const rows=[['Tidskod','Klipp','Tid in i klippet','REC','Fråga','Typ','Tagg','Kommentar','Sektion','Kort']];
+  A.E.forEach(e=>rows.push([e.tc,e.rec?'K'+e.clip:'',e.rec&&start[e.clip]?fmtDur(e.ms-start[e.clip]):'',e.rec?'ja':'nej',A.num[e.cardId]?'F'+A.num[e.cardId]:'',
+    {card:'fråga visas',reveal:'visat',rec:'rec start',stop:'rec stopp',cue:'till programledaren',tag:'tagg',note:'kommentar'}[e.kind]||e.kind,e.tag,e.kind==='tag'?e.note:e.text,e.section,e.card]));
+  return '﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n');
 }
-function dl(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-function fileBase(){const ep=activeEp();return ('logg-'+(ep.guest||ep.title||'episod')+'-'+new Date().toISOString().slice(0,10)).replace(/[^\wåäöÅÄÖ.-]+/g,'-');}
+function dl(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function fileBase(){const ep=activeEp();return ('logg-'+(ep.guest||ep.title||'episod')+'-'+new Date().toLocaleDateString('sv-SE')).replace(/[^\wåäöÅÄÖ.-]+/g,'-');}
 function openExport(){
-  const L=epLog();
-  showModal(`<div class="modal-card"><h3>Exportera logg</h3>
-    <p>${L.entries.length} rader i ${L.clips.length} klipp. Underlaget innehåller manus, din logg med tidskod och en färdig instruktion för grovklipp. Klistra in i Claude eller ChatGPT och bifoga transkriptet med tidskod separat.</p>
-    <label>Mållängd för klippet (valfritt)<input id="exLen" placeholder="t.ex. 12 minuter"></label>
-    <div class="row"><button class="primary" data-a="ex-copy">Kopiera för Claude / ChatGPT</button><button data-a="ex-md">Ladda ner .md</button><button data-a="ex-csv">Ladda ner .csv</button></div>
-    <details><summary class="muted">Förhandsgranska</summary><pre class="ex-pre" id="exPre"></pre></details>
-    <div class="row"><button data-a="ex-retime" title="Använd om du har synkat om i efterhand och vill flytta alla tidskoder">Räkna om tidskoder med nuvarande synk</button><button class="danger" data-a="ex-clear">Rensa loggen</button><span class="grow"></span><button data-a="modal-close">Stäng</button></div></div>`);
-  const upd=()=>$('#exPre').textContent=buildMarkdown($('#exLen').value.trim());upd();$('#exLen').addEventListener('input',upd);
+  const L=epLog(),nNotes=L.entries.filter(e=>e.kind==='tag'||e.kind==='note').length;
+  showModal(`<div class="modal-card ex-card"><h3>Exportera logg</h3>
+    <p>${L.clips.length} klipp, ${nNotes} taggar och kommentarer. Underlaget innehåller manuset, loggen med tidskod och en färdig instruktion för grovklipp. Klistra in det i Claude eller ChatGPT och bifoga transkriptet med tidskod.</p>
+    <label>Mål för klippet (valfritt)<input id="exLen" placeholder="t.ex. 12 minuter, eller tre klipp på 60 sekunder för sociala medier" value="${esc(settings.exportGoal||'')}"></label>
+    <div class="row"><button class="primary" data-a="ex-copy">Kopiera för Claude / ChatGPT</button><button data-a="ex-md">Ladda ner .md</button><button data-a="ex-csv">Ladda ner .csv</button><span class="grow"></span><span class="muted" id="exSize"></span></div>
+    <pre class="ex-pre" id="exPre"></pre>
+    <div class="row"><button data-a="ex-retime" title="För klipp som loggades utan synk. Klipp som synkades under inspelningen behåller sin egen synk.">Räkna om osynkade klipp med nuvarande synk</button><button class="danger" data-a="ex-clear">Rensa loggen</button><span class="grow"></span><button data-a="modal-close">Stäng</button></div></div>`);
+  const upd=()=>{const t=buildMarkdown($('#exLen').value.trim());$('#exPre').textContent=t;$('#exSize').textContent=`${t.split(/\s+/).length} ord`;};
+  upd();$('#exLen').addEventListener('input',()=>{settings.exportGoal=$('#exLen').value.trim();saveSettings();upd();});
 }
 async function copyText(t){
   try{await navigator.clipboard.writeText(t);return true;}catch(e){
-    const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();return ok;}
+    const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy');}catch(x){}ta.remove();return ok;}
 }
 function exportAction(a){
-  const len=($('#exLen')||{}).value||'';
+  const len=(($('#exLen')||{}).value||'').trim();
   switch(a){
-    case 'ex-copy':copyText(buildMarkdown(len.trim())).then(ok=>toast(ok?'Kopierat – klistra in i Claude eller ChatGPT och bifoga transkriptet':'Kunde inte kopiera – använd Ladda ner .md'));return true;
-    case 'ex-md':dl(fileBase()+'.md',buildMarkdown(len.trim()),'text/markdown');return true;
+    case 'ex-copy':copyText(buildMarkdown(len)).then(ok=>toast(ok?'Kopierat. Klistra in i Claude eller ChatGPT och bifoga transkriptet.':'Kunde inte kopiera – använd Ladda ner .md'));return true;
+    case 'ex-md':dl(fileBase()+'.md',buildMarkdown(len),'text/markdown');return true;
     case 'ex-csv':dl(fileBase()+'.csv',buildCsv(),'text/csv');return true;
-    case 'ex-retime':{if(!confirm('Räkna om alla tidskoder i loggen med nuvarande synk?')) return true;const L=epLog();
-      L.entries.forEach(e=>e.tc=tcAt(e.ms));L.clips.forEach(c=>{c.startTc=tcAt(c.startMs);if(c.endMs) c.endTc=tcAt(c.endMs);});saveLog();renderLog();$('#exPre').textContent=buildMarkdown(len.trim());toast('Tidskoderna är omräknade');return true;}
+    case 'ex-retime':{
+      if(!settings.tcSync){toast('Synka först – det finns ingen synk att räkna om med');return true;}
+      if(!confirm('Räkna om tidskoderna för klipp som saknar egen synk, med nuvarande synk? Klipp som synkades under inspelningen ändras inte.')) return true;
+      const L=epLog();let n=0;
+      L.clips.forEach(c=>{if(!(c.sync&&c.sync.own)){c.sync={...settings.tcSync,own:false};n++;}retimeClip(c.n);});
+      L.entries.forEach(e=>{if(!e.rec) e.tc=tcAt(e.ms);});saveLog();renderLog();$('#exPre').textContent=buildMarkdown(len);toast(`${n} klipp omräknade`);return true;}
     case 'ex-clear':if(!confirm('Rensa hela loggen för den här episoden? (Exportera först om du vill spara den.)')) return true;
-      logs[data.activeEpisodeId]={clips:[],entries:[]};live.rec={on:false,clip:0,lastKey:null};saveLog();saveLive();closeModal();renderLog();broadcast();return true;
+      logs[data.activeEpisodeId]={clips:[],entries:[]};live.rec={on:false,clip:0,lastKey:null};saveLog();saveLive();closeModal();renderLog();renderLive();broadcast();return true;
   }
   return false;
 }
@@ -1525,8 +1729,7 @@ function initOperator(){
   $('#noteInput').addEventListener('input',e=>{if(e.target.value&&!noteCtx){const ms=Date.now();noteCtx={ms,tc:tcAt(ms),cardId:live.cardId,reveal:live.reveal};$('#noteTc').textContent=noteCtx.tc;}
     if(!e.target.value){noteCtx=null;$('#noteTc').textContent='';}});
   $('#noteInput').addEventListener('keydown',e=>{if(e.key==='Escape'){e.target.value='';noteCtx=null;$('#noteTc').textContent='';e.target.blur();}});
-  $('#lgList').addEventListener('focusout',e=>{const t=e.target.closest('.lg-text');if(!t) return;const en=epLog().entries.find(x=>x.id===t.dataset.id);if(!en) return;
-    const v=t.innerText.trim();if(en.kind==='note') en.text=v;else en.note=v;saveLog();});
+  $('#lgList').addEventListener('focusout',e=>{const t=e.target.closest('.lg-text');if(t) saveLogText(t);});
   $('#lgList').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.closest('.lg-text')){e.preventDefault();e.target.blur();}});
   requestAnimationFrame(tcLoop);
   setInterval(renderLogMeta,500);
@@ -1544,6 +1747,8 @@ function initOperator(){
   addEventListener('beforeunload',()=>saveData(true));
 
   renderAll();broadcast();
+  if(!getFonts().faces.length&&!localStorage.getItem('vh.fonthint')&&document.fonts&&!document.fonts.check('16px "Verified Sans"')){
+    localStorage.setItem('vh.fonthint','1');toast('Tips: läs in ert eget typsnitt för värdskärmen under ⚙︎ → Typsnitt.',9000);}
 }
 
 function renderAll(){renderHeader();renderLive();renderLog();if(view==='edit') renderEditor();}
@@ -1623,7 +1828,7 @@ function quickEdit(field,val){
 }
 
 function switchEpisode(id){
-  if(live.rec&&live.rec.on){toggleRec();toast('REC stoppad vid byte av episod');}
+  stopRec('REC stoppad vid byte av episod');
   data.activeEpisodeId=id;saveData(true);live.cardId=null;live.reveal=0;ensurePos();
   renderAll();broadcast();saveLive();
 }
@@ -1757,7 +1962,7 @@ function onEditorInput(e){
   else if(fld==='recurring') f.card.recurring=el.checked;
   else if(fld==='scale') f.card.scale=+el.value;
   else f.card[fld]=el.value;
-  saveData();if(f.card.id===live.cardId||true) broadcastSoon();
+  saveData();broadcastSoon();
 }
 function onEditorChange(e){
   const el=e.target;
@@ -1771,15 +1976,15 @@ function editorAction(a,el){
   const ep=activeEp(),id=el.dataset.id;
   switch(a){
     case 'ep-pick':switchEpisode(id);break;
-    case 'ep-new':{snapshot();const e=emptyEpisode();data.episodes.push(e);data.activeEpisodeId=e.id;afterStructural();switchEpisode(e.id);break;}
+    case 'ep-new':{stopRec();snapshot();const e=emptyEpisode();data.episodes.push(e);switchEpisode(e.id);break;}
     case 'ep-dup':case 'ep-core':{
       if(!ep) return;snapshot();const e=clone(ep);e.id=uid();
       e.title=e.title+(a==='ep-core'?' (ny)':' (kopia)');
       if(a==='ep-core'){e.guest='';e.guestTitle='';e.sections.forEach(s=>s.cards=s.cards.filter(c=>c.kind==='core'));}
       e.sections.forEach(s=>{s.id=uid();s.cards.forEach(c=>c.id=uid());});
-      data.episodes.push(e);afterStructural();switchEpisode(e.id);break;}
+      stopRec();data.episodes.push(e);switchEpisode(e.id);break;}
     case 'ep-del':{
-      if(!ep||!confirm(`Ta bort episoden "${ep.guest||ep.title}"?`)) return;snapshot();
+      if(!ep||!confirm(`Ta bort episoden "${ep.guest||ep.title}"?`)) return;stopRec();snapshot();
       data.episodes=data.episodes.filter(x=>x!==ep);if(!data.episodes.length) data.episodes.push(emptyEpisode());
       data.activeEpisodeId=data.episodes[0].id;afterStructural('Episod borttagen');renderAll();break;}
     case 'sec-add':snapshot();ep.sections.push({id:uid(),title:'BLOCK '+(ep.sections.length+1),cards:[]});afterStructural();break;
@@ -1787,7 +1992,9 @@ function editorAction(a,el){
     case 'sec-del':{const s=ep.sections.find(x=>x.id===id);if(s.cards.length&&!confirm(`Ta bort "${s.title}" och ${s.cards.length} kort?`)) return;snapshot();ep.sections=ep.sections.filter(x=>x!==s);afterStructural('Sektion borttagen');break;}
     case 'card-add':{const s=ep.sections.find(x=>x.id===id);snapshot();const c=newCard(el.dataset.kind,'');s.cards.push(c);afterStructural();
       const ta=$(`[data-card="${c.id}"] textarea`);if(ta){ta.focus();ta.scrollIntoView({block:'center'});}break;}
-    case 'card-del':{const f=findCard(id);snapshot();f.sec.cards=f.sec.cards.filter(c=>c.id!==id);afterStructural('Kort borttaget');break;}
+    case 'card-del':{const f=findCard(id);if(!f) break;snapshot();
+      if(id===live.cardId){const n=neighbour(1)||neighbour(-1);live.cardId=n?n.id:null;live.reveal=0;}
+      f.sec.cards=f.sec.cards.filter(c=>c.id!==id);afterStructural('Kort borttaget');saveLive();break;}
     case 'card-dup':{const f=findCard(id);snapshot();const c=clone(f.card);c.id=uid();f.sec.cards.splice(f.sec.cards.indexOf(f.card)+1,0,c);afterStructural();break;}
     case 'card-up':case 'card-down':{
       const f=findCard(id),d=a==='card-up'?-1:1,cards=f.sec.cards,i=cards.indexOf(f.card);snapshot();
@@ -1801,10 +2008,14 @@ function editorAction(a,el){
     case 'import':openImport();break;
     case 'export':exportJson();break;
     case 'import-json':importJson();break;
-    case 'reset-all':if(confirm('Ersätta ALLT med exempeldata? (Exportera backup först om du vill spara.)')){snapshot();data=seedData();live=clone(DEFAULT_LIVE);ensurePos();afterStructural('Återställt');renderAll();}break;
+    case 'reset-all':if(confirm('Ersätta ALLA episoder med exempeldata? Loggarna ligger kvar tills du rensar dem. (Exportera backup först om du vill spara.)')){stopRec();snapshot();data=seedData();live=clone(DEFAULT_LIVE);ensurePos();afterStructural('Återställt');renderAll();}break;
     case 'imp-new':case 'imp-replace':doImport(a==='imp-replace');break;
+    case 'font-add':{const inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.accept='.woff2,.woff,.ttf,.otf';
+      inp.onchange=async()=>{await addFontFiles([...inp.files]);const fs=$('#fontStatus');if(fs) fs.innerHTML=fontStatus();};inp.click();break;}
+    case 'font-clear':write(LS_FONTS,{faces:[]});applyFonts();try{CH&&CH.postMessage({type:'vh:fonts'});}catch(e){}{const fs=$('#fontStatus');if(fs) fs.innerHTML=fontStatus();}break;
     case 'settings-copy':navigator.clipboard?.writeText(displayUrl()).then(()=>toast('Länk kopierad'));break;
-    case 'settings-reset':settings=clone(DEFAULT_SETTINGS);saveSettings();closeModal();renderLive();broadcast();break;
+    case 'settings-reset':if(!confirm('Återställa visningsinställningarna till standard? Synk, parning och typsnitt behålls.')) break;
+      settings={...clone(DEFAULT_SETTINGS),...keepMachine(settings)};saveSettings();closeModal();renderLive();broadcast();break;
   }
 }
 
@@ -1837,13 +2048,13 @@ function impPreview(){
 }
 function doImport(replace){
   const ep=impParse();if(!ep||!allCards(ep).length){toast('Hittade inga frågor att importera.');return;}
-  snapshot();
+  stopRec();snapshot();
   if(replace){const cur=activeEp();ep.id=cur.id;data.episodes[data.episodes.indexOf(cur)]=ep;}
   else data.episodes.push(ep);
   data.activeEpisodeId=ep.id;live.cardId=null;closeModal();afterStructural(`Importerade ${allCards(ep).length} kort`);renderAll();saveLive();
 }
 function exportJson(){
-  const blob=new Blob([JSON.stringify({app:'vardskarm',version:2,exported:new Date().toISOString(),data,settings,logs},null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({app:'vardskarm',version:3,exported:new Date().toISOString(),data,settings,logs,fonts:getFonts()},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`vardskarm-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
@@ -1852,7 +2063,8 @@ function importJson(){
   inp.onchange=async()=>{try{const j=JSON.parse(await inp.files[0].text());const d=j.data||j;
     if(!Array.isArray(d.episodes)) throw new Error('fel format');
     if(!confirm('Ersätta all nuvarande data med backupen?')) return;
-    snapshot();data=d;if(j.settings) settings={...DEFAULT_SETTINGS,...j.settings};saveSettings();if(j.logs){logs=j.logs;saveLog();}
+    stopRec();snapshot();data=d;if(j.settings) settings={...DEFAULT_SETTINGS,...j.settings,...keepMachine(settings)};saveSettings();if(j.logs&&typeof j.logs==='object'){logs=j.logs;saveLog();}
+    if(j.fonts&&Array.isArray(j.fonts.faces)){write(LS_FONTS,j.fonts);applyFonts();}
     if(!activeEp()) data.activeEpisodeId=data.episodes[0].id;afterStructural('Backup inläst');renderAll();
   }catch(e){toast('Kunde inte läsa filen: '+e.message);}};
   inp.click();
@@ -1868,7 +2080,7 @@ function openSettings(){
       <label>Textstorlek, alla kort: <b id="fsVal" style="color:var(--text)">${Math.round(S.fontScale*100)}%</b><input type="range" min="0.5" max="1.3" step="0.05" data-s="fontScale" value="${S.fontScale}"></label>
       <label>Färg på meddelanden <select data-s="accent">${Object.entries(ACCENTS).map(([v,l])=>`<option value="${v}" ${S.accent===v?'selected':''}>${l}</option>`).join('')}</select></label>
       <label>Språk för etiketter på värdskärmen <select data-s="hostLang"><option value="sv" ${S.hostLang==='sv'?'selected':''}>Svenska</option><option value="en" ${S.hostLang==='en'?'selected':''}>English</option></select></label>
-      <label>Programledarens namn (markeras i manus) <input data-s="hostName" value="${esc(S.hostName)}"></label>
+      <label>Programledarens namn (repliker i manus markeras) <input data-s="hostName" value="${esc(S.hostName)}" placeholder="t.ex. förnamnet i manuset"></label>
       <label class="cb"><input type="checkbox" data-s="showNext" ${S.showNext?'checked':''}> Visa "Nästa" längst ner</label>
       <label class="cb"><input type="checkbox" data-s="showProgress" ${S.showProgress?'checked':''}> Visa position (3 / 6)</label>
       <label>Tidskod överst på värdskärmen <select data-s="tcMode"><option value="camera" ${S.tcMode==='camera'?'selected':''}>Kamerans tidskod (synkad)</option><option value="timer" ${S.tcMode==='timer'?'selected':''}>Inspelningstid (styrs med T)</option><option value="clock" ${S.tcMode==='clock'?'selected':''}>Klockslag</option><option value="off" ${S.tcMode==='off'?'selected':''}>Av</option></select></label>
@@ -1880,10 +2092,12 @@ function openSettings(){
       <label>Meddelanden försvinner efter (sek, 0 = tills Rensa) <input type="number" min="0" max="120" data-s="cueSeconds" value="${S.cueSeconds}"></label>
       <label class="full">Snabbmeddelanden – ett per rad (max 9, tangent 1–9)<textarea data-s="cues">${esc(S.cues.join('\n'))}</textarea></label>
       <label class="full">Loggknappar – en per rad (max 9, Shift + 1–9)<textarea data-s="logTags">${esc(S.logTags.join('\n'))}</textarea></label>
+      <div class="full set-font"><span class="muted">Typsnitt på värdskärmen</span><div class="row"><button data-a="font-add">Välj typsnittsfiler …</button><button data-a="font-clear" class="ghost">Ta bort</button><span id="fontStatus" class="hint" style="flex:1">${fontStatus()}</span></div>
+        <span class="hint">Välj alla vikter på en gång (.woff2, .ttf eller .otf). Filerna sparas bara i den här webbläsaren och följer med i backupen.</span></div>
       <label class="full">Länk till värdskärmen (om du vill öppna den manuellt i annan flik)<div class="row"><input readonly value="${esc(displayUrl())}" style="flex:1"><button data-a="settings-copy">Kopiera</button></div></label>
     </div>
     <div class="row"><button data-a="settings-reset" class="danger">Återställ standard</button><span class="grow"></span><button class="primary" data-a="modal-close">Klar</button></div></div>`);
-  $('#modal').addEventListener('input',e=>{
+  $('#modal .modal-card').addEventListener('input',e=>{
     const el=e.target,k=el.dataset.s;if(!k) return;
     let v=el.type==='checkbox'?el.checked:el.value;
     if(k==='fontScale'||k==='cueSeconds') v=+v;
@@ -1894,6 +2108,10 @@ function openSettings(){
 }
 
 /* ---- boot ---- */
+// Publicerad på https: en service worker sparar appen så att den startar utan nät. Lokalt (file://) behövs den inte.
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(()=>{});
+applyFonts();
+if(document.fonts) document.fonts.addEventListener('loadingdone',()=>refitStages());
 if(MODE==='display') initDisplay();
 else if(MODE==='phone') initPhone();
 else{load();initOperator();}
