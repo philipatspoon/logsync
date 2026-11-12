@@ -1,0 +1,16 @@
+#!/bin/bash
+# Startar menyradsappen. Första gången installeras uv och Python-paketen automatiskt.
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+LOG="$HOME/Library/Logs/Logsync.log"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+exec >>"$LOG" 2>&1
+echo "=== $(date) start ==="
+# Redan igång? Då gör vi inget.
+if curl -s -m 1 -H 'X-Logsync: 1' http://127.0.0.1:47811/status | grep -q '"ok"'; then exit 0; fi
+if ! command -v uv >/dev/null; then
+  osascript -e 'display notification "Installerar första gången – tar en minut eller två" with title "Logsync"'
+  curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh || {
+    osascript -e 'display dialog "Kunde inte installera. Kontrollera internetanslutningen." buttons {"OK"} with title "Logsync"'; exit 1; }
+fi
+exec uv run --python 3.12 --with rumps --with mlx-whisper --with numpy --with static-ffmpeg --with huggingface_hub \
+  python "$RES/menubar.py"

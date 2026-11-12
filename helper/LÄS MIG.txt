@@ -1,0 +1,32 @@
+LOGSYNC-APPEN
+
+En liten menyradsapp för Mac som gör det Logsync i webbläsaren inte kan göra själv:
+  - transkriberar kamerafiler med kamerans tidskod
+  - hämtar branding (logotyp, färger, typsnitt) från en webbplats
+
+Första gången
+1. Lägg Logsync.app i mappen Program.
+2. Öppna den. macOS stoppar den första gången eftersom den inte är signerad:
+   Systeminställningar → Integritet och säkerhet → längst ned "Öppna ändå".
+3. "LS" dyker upp i menyraden. Första starten laddar ner Python-paket och
+   Whisper-modellen (ca 1,6 GB). Menyn visar "Förbereder …" tills den är "Redo".
+   Brandinghämtningen fungerar direkt, även medan modellen laddas ner.
+
+Sedan
+- Starta och stänga av sköts från Logsync i webbläsaren (Exportera logg → Transkript,
+  eller Inställningar → Branding), eller från LS-menyn i menyraden → Stäng av.
+- Inget körs i bakgrunden när appen är avstängd.
+- Använd Chrome. Chrome frågar en gång om sidan får ansluta till enheter
+  på den här datorn. Tillåt det.
+
+Transkribering
+Kanal 1 = värdens mygga, kanal 2 = gästens (ändras i Logsync).
+Resultatet läses in i loggen och sparas även bredvid kamerafilen:
+<Gäst>_transkript.md och <Gäst>_transkript.json
+
+Säkerhet
+Appen lyssnar bara på den egna datorn (127.0.0.1:47811) och svarar bara
+Logsync-sidan. Vilka adresser som räknas dit står överst i
+Contents/Resources/logsync_helper.py (ALLOWED_ORIGINS).
+
+Felsökning: LS-menyn → Visa logg.

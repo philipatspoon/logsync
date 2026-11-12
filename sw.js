@@ -1,8 +1,8 @@
-// Service worker för Värdskärm: gör att den publicerade appen startar utan nät.
+// Service worker för Logsync: gör att den publicerade appen startar utan nät.
 // Appen själv hämtas alltid från nätet först (så att nya versioner slår igenom direkt)
 // och från cachen bara när nätet saknas. Biblioteken från CDN har versionsnummer i
 // adressen och ändras aldrig, så de tas från cachen direkt.
-const CACHE = 'vardskarm-v1';
+const CACHE = 'logsync-v2';
 const CDN = 'https://cdn.jsdelivr.net/';
 
 self.addEventListener('install', e => {

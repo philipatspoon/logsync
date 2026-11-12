@@ -1,7 +1,7 @@
-// Tester för Värdskärm. Kör:  node tests/run.js   (kräver Playwright med Chromium)
+// Tester för Logsync. Kör:  node tests/run.js   (kräver Playwright med Chromium)
 // Öppnar index.html som lokal fil, precis som appen används, och kontrollerar hela flödet.
 const { chromium } = require('playwright');
-const fs = require('fs'), path = require('path'), http = require('http');
+const fs = require('fs'), path = require('path'), http = require('http'), { spawn, spawnSync } = require('child_process');
 const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
 const MANUS = fs.readFileSync(path.join(__dirname, 'manus-exempel.txt'), 'utf8');
 let pass = 0; const fails = [];
@@ -54,8 +54,61 @@ function fakeRelay() {
   return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ url: 'http://127.0.0.1:' + srv.address().port, state, close: () => { Object.values(subs).flat().forEach(r => r.destroy()); srv.close(); } })));
 }
 
+// En liten webbplats att hämta branding från: logotyp i sidhuvudet (med skräp som ska rensas bort),
+// en ikon som inte är en logotyp, färger och ett typsnitt i en länkad stilmall.
+const FONT_FILE = ['/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf', '/System/Library/Fonts/Supplemental/Arial.ttf', '/System/Library/Fonts/Supplemental/Courier New.ttf']
+  .find(f => fs.existsSync(f) && fs.statSync(f).size < 600000);   // hjälptjänsten hämtar inte typsnitt över 700 kB
+function fakeSite() {
+  const page = `<!doctype html><html><head><title>Start | Exempelbolaget</title><meta property="og:site_name" content="Exempelbolaget">
+    <link rel="stylesheet" href="/css/main.css"></head><body>
+    <svg style="display:none"><symbol id="ico-menu" viewbox="0 0 24 24"><path d="M2 4h20"/></symbol></svg>
+    <header><a class="site-logo" href="/"><svg class="site-logo__mark" width="240" height="60" viewbox="0 0 240 60" onload="window.hacked=1"><script>window.hacked=1</script><rect width="240" height="60" fill="#ff5500"/><a href="https://ont.example/"><circle cx="30" cy="30" r="20"/></a></svg></a>
+    <button><svg class="icon-chevron" viewbox="0 0 24 24"><path d="M2 2l10 10"/></svg></button></header><h1>Hej</h1></body></html>`;
+  const css = `:root{--brand-primary:#ff5500;--ink:#111111;--paper:#ffffff}body{font-family:"Exempel Sans",sans-serif;color:#111;background:#fff}
+    a{color:#ff5500}.btn{background:#ff5500}.note{color:#0a7d4f}
+    @font-face{font-family:"Exempel Sans";font-weight:400;font-style:normal;src:url("../fonts/exempel.ttf") format("truetype")}
+    @font-face{font-family:"Ikoner";src:url("../fonts/icons.woff2") format("woff2")}`;
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(page); }
+    if (req.url === '/css/main.css') { res.writeHead(200, { 'content-type': 'text/css' }); return res.end(css); }
+    if (req.url === '/fonts/exempel.ttf' && FONT_FILE) { res.writeHead(200, { 'content-type': 'font/ttf' }); return res.end(fs.readFileSync(FONT_FILE)); }
+    res.writeHead(404); res.end();
+  });
+  return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ url: 'http://127.0.0.1:' + srv.address().port + '/', close: () => srv.close() })));
+}
+// Den riktiga hjälptjänsten (Python) på en ledig port. Ger null om python3 saknas.
+async function startHelper() {
+  if (spawnSync('python3', ['--version']).status !== 0) return null;
+  const port = await new Promise(ok => { const s = http.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
+  const dir = path.resolve(__dirname, '..', 'helper', 'Logsync.app', 'Contents', 'Resources');
+  const proc = spawn('python3', ['logsync_helper.py'], { cwd: dir, env: { ...process.env, LOGSYNC_PORT: String(port), LOGSYNC_ALLOW_LOCAL: '1', PYTHONDONTWRITEBYTECODE: '1' }, stdio: 'ignore' });
+  const url = 'http://127.0.0.1:' + port;
+  for (let i = 0; i < 40; i++) { await new Promise(r => setTimeout(r, 150)); try { const r = await fetch(url + '/status', { headers: { 'X-Logsync': '1' } }); if (r.ok) return { url, dir, close: () => proc.kill() }; } catch (e) { } }
+  proc.kill(); return null;
+}
+// Låtsad hjälptjänst för transkriberingens gränssnitt (den riktiga kräver macOS och Whisper)
+function fakeTranscriber() {
+  const st = { job: { state: 'idle' }, polls: 0 };
+  const srv = http.createServer((req, res) => {
+    const o = req.headers.origin, H = { 'access-control-allow-origin': o || '*', 'access-control-allow-headers': 'Content-Type, X-Logsync, X-Logsync-Page', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'content-type': 'application/json' };
+    if (req.method === 'OPTIONS') { res.writeHead(204, H); return res.end(); }
+    if (req.headers['x-logsync'] !== '1') { res.writeHead(403, H); return res.end('{"error":"forbidden"}'); }
+    const send = o => { res.writeHead(200, H); res.end(JSON.stringify(o)); };
+    if (req.url === '/status') return send({ ok: true, version: '2', state: st.job.state });
+    if (req.url === '/pick') return send({ files: [{ path: '/Volumes/KORT/A001C001.MXF', name: 'A001C001.MXF', start_tc: '10:00:00:00', fps: 25, duration: 1500, channels: 2 }] });
+    if (req.url === '/transcribe') { st.job = { id: 'jobb1', state: 'running', pct: 10, msg: 'Transkriberar', elapsed: 1 }; st.polls = 0; return send({ id: 'jobb1' }); }
+    if (req.url === '/job') {
+      if (st.job.state === 'running' && ++st.polls >= 2) st.job = { id: 'jobb1', state: 'done', pct: 100, result: { fps: 25, language: 'en', speakers: ['Värd', 'Anna'], files_written: [],
+        sources: [{ path: '/Volumes/KORT/A001C001.MXF', start_tc: '10:00:00:00' }], turns: [{ tc: '10:00:03:00', out_tc: '10:00:06:00', speaker: 'Värd', text: 'Welcome.' }, { tc: '10:00:07:00', out_tc: '10:00:12:00', speaker: 'Anna', text: 'Thank you for having me.' }] } };
+      return send(st.job);
+    }
+    res.writeHead(404, H); res.end('{}');
+  });
+  return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ url: 'http://127.0.0.1:' + srv.address().port, close: () => srv.close() })));
+}
+
 (async () => {
-  const relay = await fakeRelay();
+  const relay = await fakeRelay(), site = await fakeSite(), helper = await startHelper(), trans = await fakeTranscriber();
   const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['camera', 'clipboard-read', 'clipboard-write'] });
   await ctx.route(/ntfy\.sh|jsdelivr/, r => r.abort());           // testerna ska inte gå ut på nätet
@@ -63,9 +116,9 @@ function fakeRelay() {
   page.on('pageerror', e => errs.push('operatör: ' + e.message));
   page.on('dialog', d => d.accept());
   // Nollställ lagringen från värdskärmsläget: operatörsläget sparar sin data när sidan lämnas och skulle skriva tillbaka den
-  const fresh = async (settings = {}) => {
+  const fresh = async (settings = {}, helperUrl = 'http://127.0.0.1:9') => {     // port 9: ingen hjälptjänst igång
     await page.goto('about:blank'); await page.goto(APP + '#display');
-    await page.evaluate(([s, r]) => { localStorage.clear(); localStorage.setItem('vh.settings.v1', JSON.stringify(s)); localStorage.setItem('vh.relay', r); }, [{ syncOnRec: false, ...settings }, relay.url]);
+    await page.evaluate(([s, r, h]) => { localStorage.clear(); localStorage.setItem('vh.settings.v1', JSON.stringify(s)); localStorage.setItem('vh.relay', r); localStorage.setItem('vh.helper', h); }, [{ syncOnRec: false, ...settings }, relay.url, helperUrl]);
     await page.goto('about:blank'); await page.goto(APP); await page.waitForTimeout(250);
   };
   const S = (fn, arg) => page.evaluate(fn, arg);
@@ -315,8 +368,55 @@ function fakeRelay() {
   eq(await S(() => [settings.tcSync && settings.tcSync.method, tcAt(Date.now()).slice(0, 6)]), ['kod från mobilen', '05:00:'], 'koden från mobilen kan skrivas in för hand');
   relay.state.deny = false; await mob.close();
 
+  // ---------------------------------------------------------------- branding
+  section('Branding från webbplats');
+  await fresh();
+  ok(await page.$('#pvStage .blogo') === null && !/svg|img/.test(await page.innerHTML('#brandHdr')), 'ingen branding ligger i appen från början');
+  await page.click('[data-a=settings]'); await page.fill('#brandUrl', site.url); await page.click('[data-a=brand-fetch]'); await page.waitForTimeout(400);
+  ok(/Logsync-appen är inte igång/.test(await page.textContent('#brandRes')), 'utan hjälpappen: tydligt besked och knapp för att starta den');
+  if (helper) {
+    const py = (code) => spawnSync('python3', ['-c', code], { cwd: helper.dir, env: { ...process.env, LOGSYNC_ALLOW_LOCAL: '', PYTHONDONTWRITEBYTECODE: '1' }, encoding: 'utf8' });
+    ok(/egna datorn/.test(py(`import branding as B\ntry:\n B.fetch_brand("${site.url}")\nexcept B.BrandError as e: print(e)`).stdout), 'hjälptjänsten vägrar hämta från den egna datorn och det lokala nätverket');
+    const bad = await fetch(helper.url + '/status', { headers: { 'X-Logsync': '1', Origin: 'https://annan.github.io' } }), nohdr = await fetch(helper.url + '/status');
+    eq([bad.status, nohdr.status], [403, 403], 'hjälptjänsten svarar bara Logsync-sidan');
+    eq(spawnSync('python3', [path.resolve(__dirname, '..', 'helper', 'build-zip.py'), '--check']).status, 0, 'Logsync-app.zip innehåller samma filer som helper/');
+    await fresh({}, helper.url);
+    await page.click('[data-a=settings]'); await page.fill('#brandUrl', site.url); await page.click('[data-a=brand-fetch]');
+    await page.waitForSelector('.brand-draft', { timeout: 15000 }).catch(() => {});
+    const d = await S(() => brandDraft && ({ name: brandDraft.name, logos: brandDraft.logos.map(l => [l.kind, l.ratio, /script|onload|ont\.example|<a /i.test(l.svg || '')]), colors: brandDraft.colors, font: brandDraft.font && [brandDraft.font.family, brandDraft.font.faces.length] }));
+    eq(d && [d.name, d.logos, d.colors.slice(0, 2)], ['Exempelbolaget', [['svg', 4, false]], ['#ff5500', '#0a7d4f']], 'hämtar namn, logotyp (rensad från skript, utan ikoner) och färger');
+    if (FONT_FILE) eq(d && d.font, ['Exempel Sans', 1], 'hittar sidans typsnitt och hoppar över ikontypsnitt');
+    await page.click('.bd-col >> nth=1'); await page.click('[data-a=bd-apply]'); await page.waitForTimeout(300);
+    eq(await S(() => [BRAND.name, BRAND.logo.kind, settings.accent, getFonts().family || null]), ['Exempelbolaget', 'svg', '#ff5500', FONT_FILE ? 'Exempel Sans' : null], 'brandingen sparas: namn, logotyp, färg och typsnitt');
+    ok(!(await S(() => window.hacked)), 'skript i en hämtad logotyp körs aldrig');
+    await page.click('[data-a=modal-close]');
+    ok(await page.$('#pvStage .st-right .blogo svg') !== null && await page.$('#brandHdr .blogo') !== null, 'logotypen visas på värdskärmen och i sidhuvudet');
+    const [dw] = await Promise.all([page.waitForEvent('popup'), page.click('#conn')]); await dw.waitForTimeout(600);
+    ok(await dw.$('#dStage .st-right .blogo svg') !== null, 'värdskärmens fönster får samma logotyp');
+    await page.bringToFront(); await page.keyboard.press('2'); await dw.waitForTimeout(200);
+    eq(await dw.evaluate(() => getComputedStyle(document.querySelector('.cue')).backgroundColor), 'rgb(255, 85, 0)', 'meddelanden till programledaren får brandingens färg');
+    await page.keyboard.press('Escape');
+    await page.click('[data-a=settings]'); await page.click('[data-a=brand-clear]'); await dw.waitForTimeout(300);
+    ok(await dw.$('#dStage .blogo') === null && await S(() => BRAND === null), 'Ta bort tar bort brandingen i alla fönster');
+    await dw.close(); await page.click('[data-a=modal-close]');
+  } else console.log('  (hoppar över tester mot hjälptjänsten: python3 saknas)');
+
+  // ---------------------------------------------------------------- transkribering
+  section('Transkribering via Logsync-appen');
+  await fresh({}, trans.url);
+  await page.keyboard.press('r'); await page.keyboard.press('r');
+  await page.click('[data-a=log-export]'); await page.waitForSelector('[data-a=ex-tt-pick]', { timeout: 5000 }).catch(() => {});
+  ok(await page.$('[data-a=ex-tt-pick]') !== null, 'exportfönstret ser att appen är igång');
+  await page.click('[data-a=ex-tt-pick]'); await page.waitForFunction(() => /A001C001/.test(document.querySelector('#ttFiles').textContent), null, { timeout: 5000 }).catch(() => {});
+  ok(/A001C001\.MXF · start 10:00:00:00 · 25 min/.test(await page.textContent('#ttFiles')), 'vald kamerafil visas med starttidskod och längd');
+  await page.click('[data-a=ex-tt-run]');
+  await page.waitForFunction(() => epLog().transcript, null, { timeout: 12000 }).catch(() => {});
+  eq(await S(() => epLog().transcript && epLog().transcript.turns.length), 2, 'transkriptet läses in i loggen när jobbet är klart');
+  ok(/## Transkript med logg[\s\S]*`10:00:07:00` \*\*Anna:\*\* Thank you for having me\./.test(await page.textContent('#exPre')), 'exporten uppdateras med transkriptet');
+  await page.click('[data-a=modal-close]');
+
   eq(errs, [], 'inga skriptfel i något fönster');
-  await browser.close(); relay.close();
+  await browser.close(); relay.close(); site.close(); trans.close(); if (helper) helper.close();
   console.log(`\n${pass} kontroller godkända, ${fails.length} underkända`);
   if (fails.length) { console.log(fails.map(f => ' - ' + f).join('\n')); process.exit(1); }
 })().catch(e => { console.error('Testkörningen avbröts:', e); process.exit(2); });

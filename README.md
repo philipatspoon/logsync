@@ -1,4 +1,4 @@
-# Värdskärm
+# Logsync
 
 Frågeskärm för programledare, med logg mot kamerans tidskod. Operatören styr från sin dator, programledaren ser frågorna på en egen skärm, och det operatören antecknar under inspelningen får kamerans tidskod så att det kan användas som underlag för grovklipp.
 
@@ -8,7 +8,7 @@ Appen är en enda fil, `index.html`. Öppna den publicerade versionen:
 
 eller ladda ner `index.html` och öppna filen direkt i Chrome eller Edge. Båda sätten fungerar utan nät när appen väl har öppnats en gång (den publicerade versionen sparas av webbläsaren).
 
-All data ligger i din webbläsare: manus, logg, inställningar och typsnitt. Inget av det finns i den här koden eller skickas någonstans.
+All data ligger i din webbläsare: manus, logg, inställningar, branding och typsnitt. Inget av det finns i den här koden eller skickas någonstans.
 
 ## Inspelningsdag
 
@@ -53,7 +53,7 @@ Under **Redigera** finns episoder, sektioner och kort. Allt sparas automatiskt.
    - **Med kamera:** datorns webbkamera riktad mot kamerans skärm.
    - **Manuellt** eller **klockslag**, om kameran går på Time of Day.
 3. Varje kort du stegar till loggas automatiskt. Lägg till taggar (Shift + 1–9) och kommentarer (C).
-4. **Exportera logg → Kopiera för Claude / ChatGPT** ger ett färdigt underlag: instruktion, manus, tidsfönster för varje fråga, dina taggar och kommentarer. Bifoga transkriptet med tidskod.
+4. **Exportera logg → Kopiera för Claude / ChatGPT** ger ett färdigt underlag: instruktion i steg, manus, tid på skärm för varje fråga, dina taggar och kommentarer, och samma logg som JSON. Har du transkriberat med Logsync-appen flätas transkriptet in på rätt tidskod. Annars bifogar du ett eget transkript.
 
 Varje klipp sparar sin egen synk, så det fungerar med både Free Run och Rec Run. Precisionen är inom en till två rutor. Mät kamerans fördröjning en gång under *Precision* i synkfönstret.
 
@@ -61,24 +61,41 @@ Mobilen och datorn pratar via den publika tjänsten [ntfy.sh](https://ntfy.sh) i
 
 Textigenkänningen (Tesseract) hämtas från nätet första gången och sparas sedan av webbläsaren. Gör en provsynk innan inspelningsdagen.
 
-## Typsnitt
+## Branding
 
-Under ⚙︎ → *Typsnitt på värdskärmen* väljer du era egna typsnittsfiler (.woff2, .ttf eller .otf, alla vikter på en gång). De sparas bara i din webbläsare.
+Appen har ingen egen branding. Under ⚙︎ → *Branding* skriver du en webbadress och trycker **Hämta från webbplats**. Logsync hämtar sidans logotyp, färger och typsnitt, och du väljer vad som ska användas:
+
+- logotypen visas i värdskärmens hörn och i standby
+- en av färgerna kan användas för meddelanden till programledaren
+- typsnittet används för all text på värdskärmen (typsnitt har ofta licensvillkor – använd det bara om ni har rätt till det)
+
+Hämtningen görs av Logsync-appen (se nedan), eftersom en webbsida inte får läsa andra webbplatser. Utan appen kan du lägga in en logotypfil (SVG eller PNG) och typsnittsfiler (.woff2, .ttf eller .otf) för hand på samma ställe.
+
+## Logsync-appen (Mac)
+
+En liten menyradsapp som gör det webbläsaren inte kan:
+
+- **transkriberar kamerafiler** lokalt med kamerans tidskod, en ljudkanal per person, och läser in transkriptet i loggen (*Exportera logg → Transkript*)
+- **hämtar branding** från en webbplats
+
+Ladda ner [Logsync-app.zip](https://philipatspoon.github.io/logsync/Logsync-app.zip), packa upp och följ `LÄS MIG.txt`. Appen startas från Logsync i webbläsaren och stängs av därifrån eller från menyraden. Inget körs i bakgrunden när den är avstängd.
+
+Appen lyssnar bara på den egna datorn och svarar bara de adresser som står i `ALLOWED_ORIGINS` överst i `helper/Logsync.app/Contents/Resources/logsync_helper.py`. Kör du Logsync från en annan adress lägger du till den där.
 
 ## Backup och flytt
 
-**Redigera → Exportera backup** sparar manus, loggar, inställningar och typsnitt i en fil. **Läs in backup** återställer dem, också i en annan webbläsare eller på en annan dator. Exportera en backup efter varje inspelningsdag.
+**Redigera → Exportera backup** sparar manus, loggar, inställningar, branding och typsnitt i en fil. **Läs in backup** återställer dem, också i en annan webbläsare eller på en annan dator. Exportera en backup efter varje inspelningsdag.
 
 Datan hör till adressen appen öppnas från. Byter du mellan den lokala filen och den publicerade adressen flyttar du datan med en backup.
 
 ## Utveckling
 
-`index.html` är hela appen. `sw.js` gör att den publicerade versionen startar utan nät.
+`index.html` är hela appen. `sw.js` gör att den publicerade versionen startar utan nät. `helper/` innehåller Logsync-appen; kör `python3 helper/build-zip.py` efter ändringar där så att `Logsync-app.zip` följer med.
 
 ```bash
 node tests/run.js
 ```
 
-kör testerna (kräver Playwright med Chromium). De använder en lokal kopia av relätjänsten och går inte ut på nätet. De öppnar appen som lokal fil och kontrollerar navigering, värdskärm, redigering, import, tidskodsmatte, logg, export och backup.
+kör testerna (kräver Playwright med Chromium, och python3 för testerna av hjälptjänsten). De använder lokala kopior av relätjänsten och av en webbplats, och går inte ut på nätet. De öppnar appen som lokal fil och kontrollerar navigering, värdskärm, redigering, import, tidskodsmatte, logg, export och backup.
 
 Relätjänsten kan bytas mot en egen ntfy-server genom att sätta `localStorage.setItem('vh.relay', 'https://…')` i webbläsarens konsol på både datorn och mobilen.
