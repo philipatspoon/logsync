@@ -185,6 +185,7 @@ body.mode-phone{overflow:auto}
 .sy-now{display:flex;justify-content:space-between;align-items:center;background:var(--field);padding:12px 14px;border-radius:8px}
 .sy-now span{color:var(--muted);font-size:13px}
 .sy-now b{font:500 30px ui-monospace,Menlo,monospace}
+.tt-box{border:1px solid rgba(127,127,127,.3);border-radius:8px;padding:10px 12px;margin:10px 0}.tt-box h4{margin:0 0 6px}.tt-box .row{gap:8px;align-items:end;flex-wrap:wrap}.tt-bar{height:6px;background:rgba(127,127,127,.2);border-radius:3px;overflow:hidden;margin-top:6px}.tt-bar>div{height:100%;width:0;background:currentColor;transition:width .4s}.tt-ok{margin:4px 0 8px}
 .ex-card{width:min(900px,100%)}
 .ex-pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;background:var(--field);padding:12px;max-height:42vh;overflow:auto;border-radius:8px;margin:0}
 /* REC på värdskärmen */
@@ -409,7 +410,7 @@ const DEFAULT_SETTINGS={
   fontScale:1, showNext:true, tcMode:'timer', showProgress:true, previewFollowUp:true, animations:true,
   mirror:false, hostLang:'sv', accent:'#faf7f2', cueSeconds:8, showMark:true, hostName:'Programledare',
   cues:['Följdfråga?','Gå vidare','Avrunda','30 sek kvar','Ta om frågan','Snyggt – fortsätt'],
-  fps:'25', tcSync:null, exportGoal:'', camLatency:80, ocrRoi:null, syncOnRec:true, camDeviceId:null, phoneSession:null, publicUrl:'https://philipatspoon.github.io/logsync/',
+  fps:'25', tcSync:null, camLatency:80, ocrRoi:null, syncOnRec:true, camDeviceId:null, phoneSession:null, publicUrl:'https://philipatspoon.github.io/logsync/',
   logTags:['Bra svar','Bra tagning','Omtag','Klipp bort','Citat','Skratt','Strul','Tappade tråden']
 };
 // Inställningar som hör till den här datorn och inspelningsdagen – följer inte med i backup eller återställning
@@ -935,7 +936,7 @@ function handleKey(k,e={}){
 
 /* ---- logger ---- */
 function epLog(id=data.activeEpisodeId){return logs[id]||(logs[id]={clips:[],entries:[]});}
-function saveLog(){write(LS_LOG,logs);}
+function saveLog(){return write(LS_LOG,logs);}
 function tcWith(sync,ms,noFrames){const sy=resolveSync(sync,settings.fps,ms);return framesToTC(camFrames(sy,ms),FPS[sy.fps][0],noFrames);}
 function tcAt(ms,noFrames){return tcWith(settings.tcSync,ms,noFrames);}
 const curClip=()=>live.rec&&live.rec.on?epLog().clips.find(c=>c.n===live.rec.clip):null;
@@ -1474,183 +1475,211 @@ function initPhone(){
 }
 
 /* ---- export av logg ---- */
-const one=s=>String(s??'').replace(/\s+/g,' ').trim();           // en rad
-const cell=s=>one(s).replace(/\|/g,'\\|');                       // tabellcell
-function syncLabel(sy){
-  if(!sy) return 'datorns klocka – INTE synkad mot kameran';
-  const how={'automatisk avläsning':'avläst automatiskt, inom ca 2 rutor','mobil':'avläst med mobilen, inom ca 2 rutor','kod från mobilen':'avläst med mobilen, inom ca 2 rutor',
-    'kamerabild':'avläst ur stillbild, inom ca 3 rutor','manuellt':'synkad för hand, ca ±0,2 s','klockslag':'kameran går på klockslag, datorns klocka används'}[sy.method]||sy.method;
-  return `kamerans tidskod (${how})`+(sy.own===false?`, synkad före klippet kl. ${new Date(sy.at).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})}`:'');
-}
-// Tolkar loggen: när varje kort visades (IN/OUT), och vilka taggar och kommentarer som hör till det
-function analyseLog(ep,L){
-  const E=L.entries.slice().sort((a,b)=>a.ms-b.ms),num={},segs=[];let n=0;
-  ep.sections.forEach(s=>s.cards.forEach(c=>{num[c.id]=++n;}));
-  // 1. Fönster: från att ett kort visas till nästa kort eller REC-stopp
-  let open=null;const close=e=>{if(open){open.out=e;open=null;}};
+const md=s=>String(s||'').replace(/\|/g,'\\|').replace(/\n/g,' ');
+function entryText(e){return e.kind==='tag'?e.tag+(e.note?' – '+e.note:''):e.text;}
+function buildMarkdown(targetLen){
+  const ep=activeEp(),L=epLog(),S=settings,E=L.entries.slice().sort((a,b)=>a.ms-b.ms);
+  const NEAR=20000; // taggar inom 20 s efter ett frågebyte flaggas
+  // Frågenummer F1…Fn i manusordning – används som korta ID:n överallt
+  const num={};let n=0;ep.sections.forEach(s=>s.cards.forEach(c=>num[c.id]='F'+(++n)));
+  const fid=id=>num[id]||'F?';
+  const clipOf=e=>L.clips.find(c=>c.n===e.clip);
+  const rel=e=>{const c=e.rec&&clipOf(e);return c?`K${c.n} +${fmtDur(e.ms-c.startMs)}`:'–';};
+  const segs={},notes={},loose=[],near={};let open=null,prevSw=null;
   for(const e of E){
-    if(e.kind==='card'&&e.rec){close(e);open={cardId:e.cardId,clip:e.clip,inE:e,out:null,n:0,events:[]};segs.push(open);}
-    else if(e.kind==='stop'||e.kind==='rec') close(e.kind==='stop'?e:null);
-    else if(open&&e.rec&&e.cardId===open.cardId&&e.kind!=='reveal') open.n++;
+    if(e.kind==='card'){if(open){open.out=e;}
+      // snabba förbipasseringar (<3 s) räknas inte som byte – behåll frågan innan dess
+      const from=open?(prevSw&&e.ms-open.inE.ms<3000?prevSw.from:open.cardId):null;prevSw=from?{from,ms:e.ms,clip:e.clip}:null;open={cardId:e.cardId,inE:e,out:null};(segs[e.cardId]=segs[e.cardId]||[]).push(open);}
+    else if(e.kind==='stop'){if(open){open.out=e;open=null;}prevSw=null;}
+    else if(['tag','note','cue','reveal'].includes(e.kind)){
+      if((e.kind==='tag'||e.kind==='note')&&prevSw&&prevSw.clip===e.clip&&e.ms-prevSw.ms<NEAR&&prevSw.from!==e.cardId)
+        near[e.id]=`⚠ ${Math.round((e.ms-prevSw.ms)/1000)} s efter byte från ${fid(prevSw.from)} – kan gälla ${fid(prevSw.from)}`;
+      if(e.cardId&&num[e.cardId]) (notes[e.cardId]=notes[e.cardId]||[]).push(e);else loose.push(e);}
   }
-  // REC som aldrig stoppades: stäng fönstret vid klippets slut om det är känt
-  segs.forEach(g=>{if(!g.out){const c=L.clips.find(c=>c.n===g.clip);if(c&&c.endMs) g.out={kind:'stop',ms:c.endMs,tc:c.endTc};}});
-  // 2. Snabba förbipasseringar (under 3 s utan taggar eller kommentarer) räknas inte som att kortet visades
-  const keep=segs.filter(g=>!g.out||g.out.kind==='stop'||g.n||g.out.ms-g.inE.ms>=3000);
-  // 3. Samma kort direkt igen (hopp fram och tillbaka) slås ihop till ett fönster
-  const wins=[];for(const g of keep){const p=wins[wins.length-1];
-    if(p&&p.cardId===g.cardId&&p.clip===g.clip&&p.out&&p.out.kind!=='stop'&&g.inE.ms-p.out.ms<=5000) p.out=g.out;else wins.push(g);}
-  const byCard={},notes={},loose=[];
-  wins.forEach((g,i)=>{g.prev=wins[i-1]&&wins[i-1].clip===g.clip?wins[i-1]:null;(byCard[g.cardId]=byCard[g.cardId]||[]).push(g);});
-  // 4. Lägg varje tagg, kommentar och följdfråga i sitt fönster
-  for(const e of E){
-    if(!['tag','note','cue','reveal'].includes(e.kind)) continue;
-    if(!e.cardId||!num[e.cardId]){if(e.kind!=='reveal') loose.push(e);continue;}
-    const g=e.rec?wins.find(g=>g.cardId===e.cardId&&g.clip===e.clip&&e.ms>=g.inE.ms&&(!g.out||e.ms<=g.out.ms)):null;
-    // Tryckt strax efter ett kortbyte: gäller troligen svaret på föregående fråga
-    const late=(e.kind==='tag'||e.kind==='note')&&g&&g.prev&&g.prev.cardId!==e.cardId&&e.ms-g.inE.ms<6000?{sec:Math.round((e.ms-g.inE.ms)/1000),prev:num[g.prev.cardId]}:null;
-    if(g) g.events.push({e,late});else if(e.kind!=='reveal') (notes[e.cardId]=notes[e.cardId]||[]).push({e,late:null});
+  const sy=S.tcSync,out=[];
+  out.push(`# Grovklippsunderlag – ${ep.title}`,'');
+  out.push(`- **Gäst:** ${ep.guest}${ep.guestTitle?', '+ep.guestTitle:''}`);
+  if(E.length) out.push(`- **Inspelningsdag:** ${new Date(E[0].ms).toLocaleDateString('sv-SE')}`);
+  out.push(`- **Tidskod:** ${sy?`kamerans tidskod, ${sy.fps} fps (synkad ${new Date(sy.at).toLocaleString('sv-SE')} via ${sy.method}; noggrannhet ungefär ±0,2 s)`:`datorns klocka, ${S.fps} fps – INTE synkad mot kameran`}`);
+  if(targetLen) out.push(`- **Mållängd:** ${targetLen}`);
+  if(L.clips.length){
+    out.push('','### Klipp (REC)','','| Klipp | Start-TC | Slut-TC | Längd | Relativ tid |','|---|---|---|---|---|');
+    L.clips.forEach(c=>out.push(`| K${c.n} | ${c.startTc} | ${c.endTc||'pågår'} | ${c.endMs?fmtDur(c.endMs-c.startMs):''} | K${c.n} +0:00 = ${c.startTc} |`));
+    out.push('','Relativ tid ("K1 +3:20") räknas från när jag tryckte REC i appen. Kamerafilen kan ha startat några sekunder tidigare eller senare – använd absolut tidskod i första hand och relativ tid som reserv.');
   }
-  return {E,num,byCard,notes,loose,wins};
-}
-// En loggrad som text i exporten
-function entryMd(e,bold){
-  if(e.kind==='tag') return (bold?`**${one(e.tag)}**`:`Tagg: ${one(e.tag)}`)+(e.note?' – '+one(e.note):'');
-  if(e.kind==='note') return 'Kommentar: '+one(e.text);
-  if(e.kind==='cue') return one(e.text).replace(/^Till värden:/,'Till programledaren:');
-  if(e.kind==='reveal') return /^Följdfråga:/.test(e.text)?'Följdfrågan visas':one(e.text)+' visas';
-  if(e.kind==='card') return 'Kortet visas';
-  return one(e.text);
-}
-function tagGuide(tags){
-  const pos=[],neg=[],re=[],other=[];
-  for(const t of tags){
-    if(/omtag|ta om|retake/i.test(t)) re.push(t);
-    else if(/klipp bort|stryk|strul|tappa|dålig|fel|inte bra|cut|bad/i.test(t)) neg.push(t);
-    else if(/bra|citat|stark|guld|skratt|rolig|använd|bäst|good|great|quote/i.test(t)) pos.push(t);
-    else other.push(t);
-  }
-  const q=a=>a.map(t=>`"${t}"`).join(', '),out=[];
-  if(pos.length) out.push(`- Prioritera material märkt ${q(pos)}.`);
-  if(neg.length) out.push(`- Använd inte material märkt ${q(neg)}, om det inte behövs för sammanhanget.`);
-  if(re.length) out.push(`- ${q(re)} betyder att frågan eller svaret togs om. Använd normalt den senare tagningen och säg vilken du valde.`);
-  if(other.length) out.push(`- Övriga taggar (${q(other)}): tolka dem efter ordalydelsen.`);
-  return out;
-}
-function buildMarkdown(goal){
-  const ep=activeEp(),L=epLog(),S=settings,A=analyseLog(ep,L),{E,num}=A,out=[];
-  const clips=L.clips,fps=(clips.map(c=>clipSync(c)).find(Boolean)||{}).fps||S.fps;
-  const noRec=e=>e.rec?'':' _(loggad utanför REC)_';
-  const dur=(a,b)=>fmtDur(b-a);
-  out.push(`# Grovklippsunderlag: ${one(ep.title)||'Namnlös episod'}`,'');
-  if(ep.guest) out.push(`- Gäst: ${one(ep.guest)}${ep.guestTitle?', '+one(ep.guestTitle):''}`);
-  if(E.length) out.push(`- Inspelad: ${new Date(E[0].ms).toLocaleDateString('sv-SE')}`);
-  out.push(`- Tidskod: TT:MM:SS:RR (timmar, minuter, sekunder, rutor), ${fps} bilder per sekund`);
-  if(goal) out.push(`- Mål för klippet: ${one(goal)}`);
-  out.push('','## Uppdrag','',
-`Du är en erfaren klippare och ska ta fram ett grovklipp av en intervju. Du har två källor:
+  const tagList=S.logTags.map(t=>'"'+t+'"').join(', ');
+  const MC=[['Bra svar','Grön'],['Bra tagning','Grön'],['Citat','Lila'],['Skratt','Gul'],['Omtag','Orange'],['Tappade tråden','Orange'],['Strul','Röd'],['Klipp bort','Röd'],['Kommentar','Vit'],['Följdfråga/alternativ visat','Cyan']];
+  const guest=(ep.guest||ep.title||'Gäst').trim();const TR=L.transcript&&L.transcript.turns&&L.transcript.turns.length?L.transcript:null;
+  const secNames=ep.sections.map(s=>s.title.trim()).filter(Boolean);
+  out.push('','## Instruktion','',
+`Du är en erfaren klippare och hjälper mig från transkript till ett grovklipp i Premiere. Du får (1) det här underlaget: manus i ordning (F1, F2 …), min livelogg med kamerans tidskod och samma logg som JSON längst ned, och (2) ${TR?'transkriptet längre ned, där min logg redan är inflätad på rätt tidskod':'ett transkript från Premiere. Det har ofta tid från 00:00 och talare som "Speaker 1, 2 …"'}.
 
-1. Det här underlaget: manuset med frågorna numrerade F1, F2 … i manusordning, och min logg från inspelningen. Loggen fördes live och varje rad har kamerans tidskod.
-2. Ett transkript av inspelningen med tidskod, som jag bifogar separat.
+**Grundregler**
+- **Transkriptet är facit** för var frågor och svar börjar och slutar. Loggen visar vad som stod på **värdens skärm**. Värden ber ofta om att få nästa fråga visad innan gästen pratat klart, så frågor visas ofta 10–60 s innan de ställs.
+- **Loggen bidrar med omdömen.** Taggarna (${tagList}) loggades 2–10 s efter det de syftar på. Taggar märkta ⚠ kom strax efter ett frågebyte och gäller troligen föregående fråga. Flytta varje tagg till det svar den faktiskt hör till.
+${TR?'- **Talarna i transkriptet stämmer.** Värd och gäst har varsin mygga och transkriberades var för sig.':'- **Talarnamnen i transkriptet går inte att lita på.** Avgör vem som pratar utifrån innehållet.'}
+- **Hitta inte på** repliker eller tidskoder. Det du inte kan avgöra flaggar du.
 
-### Så läser du loggen
+${TR?'**Steg 1 – Synk behövs inte.** Transkriptet har kamerans tidskod, läst direkt ur kamerafilen, precis som loggen. Gå vidare till steg 2.':'**Steg 1 – Synka.**'} ${TR?'':'Räkna ut förskjutningen mellan transkriptets tid och kamerans tidskod. Bästa ankarpunkter: "Visat"-rader (följdfrågor och alternativ som värden läser upp direkt), omtag av en fråga och ett eventuellt slate vid REC. Använd minst två ankarpunkter och redovisa dem i en tabell: Logg | Händelse | Transkript | Förskjutning. Kameran kan ha rullat genom flera REC-klipp i appen. Kontrollera om transkriptet är en sammanhängande fil.'}
 
-- "Visad IN → OUT" är när kortet med frågan visades för programledaren och när nästa kort visades. Raderna under hör till den tagningen, i tidsordning. Frågan ställs oftast några sekunder efter IN, och svaret tar slut strax före OUT. Använd tiderna som sökfönster i transkriptet, inte som färdiga klippunkter.
-- Taggar och kommentarer loggades när jag tryckte, oftast 2–10 sekunder efter det de syftar på. Rader märkta "direkt efter kortbyte" gäller troligen svaret på föregående fråga.
-- Kommentarer är mina egna anteckningar. "Till programledaren" är meddelanden jag skickade till programledarens skärm under inspelningen.
-${tagGuide([...new Set([...S.logTags,...E.filter(e=>e.kind==='tag').map(e=>e.tag)])]).join('\n')}
+**Steg 2 – Frågekarta.** Gör en tabell över allt som faktiskt ställdes, i transkriptets ordning: F-nr | Fråga | IN | OUT | Längd | Bin | Notering. Ange omtag och följdfrågor som F7b osv. Lista frågor som inte ställdes eller inte fick svar. Ange troliga felhörningar i transkriptet (namn, facktermer) i en egen lista.
 
-### Gör så här
+**Steg 3 – Taggar.** Gör en tabell: Logg-TC | Tagg | Loggad på | Transkript-tid | Gäller egentligen.
 
-1. Leta upp varje visad fråga i transkriptet inom sitt sökfönster. En fråga kan ha visats flera gånger (omtag). Hitta var svaret börjar och slutar.
-2. Välj ut det starkaste materialet med hjälp av mina taggar och kommentarer, och din egen bedömning av innehållet.
-3. Föreslå ett grovklipp${goal?` som uppfyller målet ovan (${one(goal)})`:''}. Följ manusordningen om inte en annan ordning blir tydligt bättre, och motivera i så fall bytet.
-4. Svara med en tabell: Nr | Fråga (F-nr) | Klipp | IN | OUT | Längd | Första orden … sista orden | Motivering. Sätt IN vid första ordet som ska vara med och OUT efter det sista.
-5. Efter tabellen: total längd, de starkaste citaten ordagrant med tidskod, och en lista över det du är osäker på.
+**Steg 4 – Grovklipp v1.** Gör en tabell i manusordning: Nr | F | Innehåll | IN | OUT | Längd | Kamera-TC IN | Motivering. Ange IN och OUT ${TR?'i kamerans tidskod (HH:MM:SS:FF)':'i transkriptets tid på tiondels sekund'}, med cirka 0,25 s marginal. Märk en kortare version${targetLen?` runt ${targetLen}`:''} med ✓. Ange total längd för båda versionerna. Lista sedan de starkaste citaten med tidskod och allt du är osäker på.
 
-### Regler
+**Steg 5 – Premiere-struktur.** Bygg upp projektet så här, antingen direkt i Premiere om du har verktyg för det eller som en FCP-XML att importera:
+- **Bins:** \`${guest}\` > ${secNames.map(n=>'`'+n+'`').join(', ')} och \`Slask\`. Varje använd fråga eller tagning blir ett subclip i sin sektions bin. Pauser, strul, crew-prat och kasserade tagningar läggs i Slask.
+- **Sekvens:** \`${guest} – Roughcut v1\` med grovklippet från steg 4 utan Slask. Gör en sekvens till för den korta versionen.
+- **Markers** i sekvensen, en per tagg, med taggen som namn och min notering som kommentar. Färger: ${MC.map(([t,c])=>t+' = '+c).join(', ')}, övriga taggar = Blå. Lägg dessutom en vit marker vid varje frågas början med F-numret.
 
-- Använd bara tidskoder som finns i transkriptet, och citera ordagrant. Hitta inte på repliker.
-- Om transkriptets tider räknas från filens början i stället för kamerans tidskod: räkna om med filens starttidskod. Tabellen Klipp nedan visar tidskoden när jag tryckte REC i appen, vilket är några sekunder efter att kameran startade. Fråga mig om filens exakta starttidskod om du behöver den.
-- Om loggen och transkriptet inte går ihop, till exempel om en fråga saknas i sitt sökfönster, ska du säga det i stället för att gissa.`,'');
-  out.push('## Klipp','');
-  if(clips.length){
-    out.push('| Klipp | Start | Slut | Längd | Tidskodens källa |','|---|---|---|---|---|');
-    clips.forEach(c=>out.push(`| K${c.n} | ${c.startTc} | ${c.endTc||'pågår'} | ${c.endMs?dur(c.startMs,c.endMs):'–'} | ${cell(syncLabel(clipSync(c)))} |`));
-    if(clips.some(c=>!clipSync(c))) out.push('','Obs: klipp utan synk har tidskoder från datorns klocka. De stämmer bara mot kameran om kameran går på klockslag.');
-  }else out.push('_Ingen inspelning loggad ännu (REC har inte använts)._');
-  out.push('','## Manus med logg','');
+**Steg 6 – Feedback.** Stanna och vänta på min feedback. Varje ändring ger en ny version (v2, v3 …). Redovisa kort vad som ändrats (rad, IN/OUT, längd) och uppdatera sekvensen och markers på samma sätt.`,'');
+  if((L.notes||'').trim()) out.push('## Inspelningsnoteringar (gäller den här inspelningen)','',L.notes.trim(),'');
+  out.push('## Manus med logg (manusordning)','');
   for(const s of ep.sections){
-    out.push(`### ${one(s.title)}`,'');
+    out.push(`### ${s.title}`,'');
     for(const c of s.cards){
-      const k=c.kind,head=k==='script'?'(manus, se nedan)':k==='moment'?one(c.text)||'Moment':one(c.text)||'(tom)';
-      out.push(`**F${num[c.id]} · ${KINDS[k]||k}:** ${head}`);
-      if(c.followUp&&k!=='script') out.push(`- Följdfråga: ${one(c.followUp)}`);
-      if(k==='moment'&&c.rules) out.push(`- Regler: ${one(c.rules)}`);
-      if(k==='moment'&&c.list.length) out.push(`- Alternativ${c.listLabel?' ('+one(c.listLabel)+')':''}: ${c.list.map(one).join('; ')}`);
-      if(k==='script') c.text.split('\n').map(one).filter(Boolean).forEach(l=>out.push(`  > ${l}`));
-      if(c.background) out.push(`- Bakgrund (min anteckning): ${one(c.background)}`);
-      const sg=A.byCard[c.id]||[];
-      if(!sg.length) out.push(live.skipped[c.id]?'- Inte visad (överhoppad).':'- Inte visad under REC.');
-      sg.forEach(g=>{
-        out.push(`- Visad K${g.clip} \`${g.inE.tc}\` → \`${g.out?g.out.tc:'pågår'}\`${g.out?' ('+dur(g.inE.ms,g.out.ms)+')':''}`);
-        g.events.forEach(({e,late})=>out.push(`  - \`${e.tc}\` ${entryMd(e,true)}${late?` _(direkt efter kortbyte, ${late.sec} s; gäller troligen F${late.prev})_`:''}`));
-      });
-      (A.notes[c.id]||[]).forEach(({e})=>out.push(`- \`${e.tc}\` ${entryMd(e,true)}${noRec(e)}`));
+      out.push(`**${fid(c.id)}. ${cardSummary(c)}** _(${KINDS[c.kind]})_`);
+      if(c.followUp&&c.kind!=='script') out.push(`Följdfråga: ${c.followUp}`);
+      if(c.kind==='moment'&&c.list.length) out.push(`Alternativ: ${c.list.join(', ')}`);
+      if(c.kind==='script') out.push('Manus: '+c.text.replace(/\n/g,' / '));
+      const sg=(segs[c.id]||[]).filter(g=>!g.out||g.out.kind==='stop'||g.out.ms-g.inE.ms>=3000); // hoppa över snabba förbipasseringar
+      if(!sg.length) out.push('- _Ingen loggad tid – troligen inte ställd under REC_');
+      sg.forEach(g=>out.push(`- På skärm \`${g.inE.tc}\` → \`${g.out?g.out.tc:'…'}\` (${rel(g.inE)}${g.out?', '+fmtDur(g.out.ms-g.inE.ms):''})`));
+      (notes[c.id]||[]).forEach(e=>out.push(`- \`${e.tc}\` (${rel(e)}) ${e.kind==='tag'?`**${e.tag}**${e.note?' – '+e.note:''}`:e.kind==='note'?'Kommentar: '+e.text:e.text}${near[e.id]?' '+near[e.id]:''}`));
       out.push('');
     }
   }
-  if(A.loose.length){
-    out.push('## Övriga anteckningar','','Rader som inte hör till något kort i det nuvarande manuset (kortet har tagits bort eller manuset har importerats om).','');
-    A.loose.forEach(e=>out.push(`- \`${e.tc}\` ${entryMd(e,true)}${e.card?` _(kort: ${one(e.card).slice(0,80)})_`:''}${noRec(e)}`));
-    out.push('');
+  if(loose.length){out.push('## Övriga anteckningar','');loose.forEach(e=>out.push(`- \`${e.tc}\` ${entryText(e)}`));out.push('');}
+  if(TR){
+    const nom=Math.round(TR.fps||25),F=tc=>{const m=String(tc||'').split(/[:;.]/).map(Number);return m.length<4?0:((m[0]*60+m[1])*60+m[2])*nom+m[3];};
+    const rows=TR.turns.map(t=>({f:F(t.tc),o:1,line:`\`${t.tc}\` **${t.speaker}:** ${t.text}`}));
+    E.forEach(e=>{
+      if(e.kind==='tag') rows.push({f:F(e.tc),o:0,line:`\`${e.tc}\` ⟡ **[${e.tag}]**${e.note?' '+e.note:''} _(loggad på ${e.cardId?fid(e.cardId):'–'})_${near[e.id]?' '+near[e.id]:''}`});
+      else if(e.kind==='note') rows.push({f:F(e.tc),o:0,line:`\`${e.tc}\` ⟡ **[Kommentar]** ${e.text}`});
+      else if(e.kind==='card') rows.push({f:F(e.tc),o:0,line:`\`${e.tc}\` ▸ _På skärm: ${fid(e.cardId)}_`});
+      else if(e.kind==='reveal'||e.kind==='cue') rows.push({f:F(e.tc),o:0,line:`\`${e.tc}\` ↳ _${e.text}_`});
+      else if(e.kind==='rec'||e.kind==='stop') rows.push({f:F(e.tc),o:0,line:`\`${e.tc}\` ${e.kind==='rec'?'●':'■'} _${e.text}_`});
+    });
+    rows.sort((a,b)=>a.f-b.f||a.o-b.o);
+    out.push('## Transkript med logg (kamerans tidskod)','',
+      `Transkriberat ur kamerafilen: ${TR.sources.map(x=>`${String(x.path).split('/').pop()} (start ${x.start_tc})`).join(' · ')}. Repliker: **Namn:** text. Min logg är inflätad: ▸ frågan visas på skärmen, ⟡ tagg eller kommentar, ↳ följdfråga eller meddelande.`,'');
+    rows.forEach(r=>out.push(r.line+'  '));out.push('');
   }
-  if(E.length){
-    out.push('## Tidslinje','','Samma logg i tidsordning.','','| Tidskod | Klipp | Fråga | Händelse |','|---|---|---|---|');
-    E.forEach(e=>out.push(`| ${e.tc} | ${e.rec?'K'+e.clip:'–'} | ${e.cardId&&num[e.cardId]&&!['rec','stop'].includes(e.kind)?'F'+num[e.cardId]:'–'} | ${cell(entryMd(e,false))} |`));
-  }
-  return out.join('\n').replace(/\n{3,}/g,'\n\n').trim()+'\n';
+  out.push('## Tidslinje','','Hela loggen i tidsordning. Frågor anges med F-nummer – se manuset ovan för frågetexten.','','| Tidskod | Relativ | Fråga | Händelse | ⚠ |','|---|---|---|---|---|');
+  const TY={card:'▸ På skärm',reveal:'↳ Visat',rec:'● REC start',stop:'■ REC stopp',cue:'→ Till värden',tag:'Tagg',note:'Kommentar'};
+  E.forEach(e=>{
+    const ev=e.kind==='card'?TY.card:e.kind==='tag'?`**${e.tag}**${e.note?' – '+e.note:''}`:e.kind==='rec'||e.kind==='stop'?TY[e.kind]:e.kind==='cue'?`→ ${e.text}`:`${TY[e.kind]||e.kind}: ${e.text.replace(/^Följdfråga: /,'följdfråga – ')}`;
+    out.push(`| ${e.tc} | ${rel(e)} | ${e.cardId?fid(e.cardId):''} | ${md(ev)} | ${md(near[e.id]?near[e.id].replace(/^⚠ /,''):'')} |`);
+  });
+  const J={episode:ep.title,guest:ep.guest,guestTitle:ep.guestTitle,fps:sy?sy.fps:S.fps,synced:!!sy,
+    clips:L.clips.map(c=>({clip:'K'+c.n,startTc:c.startTc,endTc:c.endTc})),
+    script:ep.sections.map(s=>({section:s.title,cards:s.cards.map(c=>({f:fid(c.id),kind:c.kind,text:cardSummary(c),followUp:c.followUp||undefined,options:c.kind==='moment'&&c.list.length?c.list:undefined}))})),
+    log:E.map(e=>({tc:e.tc,rel:rel(e),f:e.cardId?fid(e.cardId):undefined,kind:e.kind,tag:e.tag||undefined,text:(e.kind==='tag'?e.note:e.text)||undefined,flag:near[e.id]||undefined})),
+    notes:(L.notes||'').trim()||undefined};
+  out.push('','## Data (JSON)','','```json',JSON.stringify(J),'```');
+  return out.join('\n');
 }
 function buildCsv(){
   const safe=v=>{v=String(v??'');return /^[=+\-@\t\r]/.test(v)?"'"+v:v;};   // hindra att kalkylprogram tolkar text som formel
   const q=v=>'"'+safe(v).replace(/"/g,'""')+'"';
-  const L=epLog(),A=analyseLog(activeEp(),L),start={};L.clips.forEach(c=>start[c.n]=c.startMs);
+  const L=epLog(),num={},start={};let n=0;activeEp().sections.forEach(s=>s.cards.forEach(c=>num[c.id]='F'+(++n)));L.clips.forEach(c=>start[c.n]=c.startMs);
   const rows=[['Tidskod','Klipp','Tid in i klippet','REC','Fråga','Typ','Tagg','Kommentar','Sektion','Kort']];
-  A.E.forEach(e=>rows.push([e.tc,e.rec?'K'+e.clip:'',e.rec&&start[e.clip]?fmtDur(e.ms-start[e.clip]):'',e.rec?'ja':'nej',A.num[e.cardId]?'F'+A.num[e.cardId]:'',
-    {card:'fråga visas',reveal:'visat',rec:'rec start',stop:'rec stopp',cue:'till programledaren',tag:'tagg',note:'kommentar'}[e.kind]||e.kind,e.tag,e.kind==='tag'?e.note:e.text,e.section,e.card]));
+  L.entries.slice().sort((a,b)=>a.ms-b.ms).forEach(e=>rows.push([e.tc,e.rec?'K'+e.clip:'',e.rec&&start[e.clip]?fmtDur(e.ms-start[e.clip]):'',e.rec?'ja':'nej',num[e.cardId]||'',
+    {card:'på skärm',reveal:'visat',rec:'rec start',stop:'rec stopp',cue:'till värden',tag:'tagg',note:'kommentar'}[e.kind]||e.kind,e.tag,e.kind==='tag'?e.note:e.text,e.section,e.card]));
   return '﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n');
 }
 function dl(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-function fileBase(){const ep=activeEp();return ('logg-'+(ep.guest||ep.title||'episod')+'-'+new Date().toLocaleDateString('sv-SE')).replace(/[^\wåäöÅÄÖ.-]+/g,'-');}
+function fileBase(){const ep=activeEp(),E=epLog().entries,d=E.length?new Date(Math.min(...E.map(e=>e.ms))):new Date();return ('logg-'+(ep.guest||ep.title||'episod')+'-'+d.toLocaleDateString('sv-SE')).replace(/[^\wåäöÅÄÖ.-]+/g,'-');}
 function openExport(){
-  const L=epLog(),nNotes=L.entries.filter(e=>e.kind==='tag'||e.kind==='note').length;
-  showModal(`<div class="modal-card ex-card"><h3>Exportera logg</h3>
-    <p>${L.clips.length} klipp, ${nNotes} taggar och kommentarer. Underlaget innehåller manuset, loggen med tidskod och en färdig instruktion för grovklipp. Klistra in det i Claude eller ChatGPT och bifoga transkriptet med tidskod.</p>
-    <label>Mål för klippet (valfritt)<input id="exLen" placeholder="t.ex. 12 minuter, eller tre klipp på 60 sekunder för sociala medier" value="${esc(settings.exportGoal||'')}"></label>
-    <div class="row"><button class="primary" data-a="ex-copy">Kopiera för Claude / ChatGPT</button><button data-a="ex-md">Ladda ner .md</button><button data-a="ex-csv">Ladda ner .csv</button><span class="grow"></span><span class="muted" id="exSize"></span></div>
-    <pre class="ex-pre" id="exPre"></pre>
+  const L=epLog();
+  showModal(`<div class="modal-card"><h3>Exportera logg</h3>
+    <p>${L.entries.length} rader i ${L.clips.length} klipp. Underlaget innehåller manus, din logg med tidskod och en färdig instruktion för grovklipp. Klistra in i Claude eller ChatGPT och bifoga transkriptet med tidskod separat.</p>
+    <label>Mållängd för klippet (valfritt)<input id="exLen" placeholder="t.ex. 12 minuter"></label>
+    <label>Inspelningsnoteringar till klipparen (sparas med loggen)<textarea id="exNotes" rows="3" placeholder="T.ex. Värden bad mig byta fråga på skärmen innan gästen svarat klart – taggar strax efter ett frågebyte hör ofta till föregående fråga.">${esc(L.notes||'')}</textarea></label>
+    <div id="ttBox" class="tt-box"></div>
+    <div class="row"><button class="primary" data-a="ex-copy">Kopiera för Claude / ChatGPT</button><button data-a="ex-md">Ladda ner .md</button><button data-a="ex-csv">Ladda ner .csv</button></div>
+    <details><summary class="muted">Förhandsgranska</summary><pre class="ex-pre" id="exPre"></pre></details>
     <div class="row"><button data-a="ex-retime" title="För klipp som loggades utan synk. Klipp som synkades under inspelningen behåller sin egen synk.">Räkna om osynkade klipp med nuvarande synk</button><button class="danger" data-a="ex-clear">Rensa loggen</button><span class="grow"></span><button data-a="modal-close">Stäng</button></div></div>`);
-  const upd=()=>{const t=buildMarkdown($('#exLen').value.trim());$('#exPre').textContent=t;$('#exSize').textContent=`${t.split(/\s+/).length} ord`;};
-  upd();$('#exLen').addEventListener('input',()=>{settings.exportGoal=$('#exLen').value.trim();saveSettings();upd();});
+  const upd=()=>$('#exPre').textContent=buildMarkdown($('#exLen').value.trim());upd();$('#exLen').addEventListener('input',upd);$('#exNotes').addEventListener('input',e=>{epLog().notes=e.target.value;saveLog();upd();});
+  exUpd=upd;ttRender();
+}
+/* ---- lokal transkribering (Trust Issues-tjänsten på den egna datorn) ---- */
+const TT='http://127.0.0.1:47811';let exUpd=()=>{},ttFiles=[],ttTimer=null,ttUp=null;
+async function tt(path,body){
+  const r=await fetch(TT+path,{method:body?'POST':'GET',headers:{'X-TT':'1','X-TT-Page':location.href.split('#')[0],'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('HTTP '+r.status));return j;}
+function ttGuestName(){const g=(activeEp().guest||'').trim();return g?g.split(/\s+/)[0]:'Gäst';}
+async function ttRender(){
+  const box=$('#ttBox');if(!box) return;const L=epLog(),T=L.transcript;
+  let st;try{st=await tt('/status');ttUp=true;}catch(e){ttUp=false;}
+  const have=T&&T.turns?`<div class="tt-ok">✓ Transkript inläst: ${T.turns.length} repliker · ${T.sources.map(x=>esc(String(x.path).split('/').pop())).join(', ')} <button class="ghost" data-a="ex-tt-clear">Ta bort</button></div>`:'';
+  if(!ttUp){box.innerHTML=`<h4>Transkript <span class="muted">· av</span></h4>${have}<div class="row"><button data-a="ex-tt-start">▶ Starta Trust Issues</button><span id="ttMsg" class="muted">Startar menyradsappen på den här datorn. Första gången: lägg <b>Trust Issues.app</b> i Program och öppna den en gång därifrån.</span></div>`;return;}
+  const busy=st.state==='running';
+  box.innerHTML=`<h4>Transkript <span class="muted">· igång ✓</span> <button class="ghost" data-a="ex-tt-stop" ${busy?'disabled':''} title="Stänger menyradsappen">■ Stäng av</button></h4>${have}
+    <div class="row"><label>Kanal 1<input id="ttN1" value="${esc(settings.ttHost||settings.hostName||'Värd')}"></label><label>Kanal 2<input id="ttN2" value="${esc(ttGuestName())}"></label>
+    <label>Språk<select id="ttLang"><option value="en">Engelska</option><option value="sv">Svenska</option></select></label></div>
+    <div class="row"><button data-a="ex-tt-pick" ${busy?'disabled':''}>Välj kamerafil…</button><span id="ttFiles" class="muted">${ttFiles.length?ttFiles.map(f=>esc(f.name)+' · start '+esc(f.start_tc||'?')+' · '+Math.round(f.duration/60)+' min').join('<br>'):'Ingen fil vald'}</span></div>
+    <div class="row"><button class="primary" data-a="ex-tt-run" ${busy||!ttFiles.length?'disabled':''}>Transkribera</button><span id="ttMsg" class="muted"></span></div>
+    <div class="tt-bar"><div id="ttBar"></div></div>`;
+  $('#ttLang').value=settings.ttLang||'en';
+  if(busy) ttPoll();
+}
+function ttPoll(){
+  clearTimeout(ttTimer);
+  tt('/job').then(j=>{
+    const bar=$('#ttBar'),msg=$('#ttMsg');
+    if(bar) bar.style.width=(j.pct||0)+'%';
+    if(msg) msg.textContent=j.state==='running'?`${j.msg||''} · ${Math.round(j.pct||0)} % · ${fmtDur((j.elapsed||0)*1000)}`:j.state==='error'?'⚠ '+j.msg:'';
+    if(j.state==='running'){ttTimer=setTimeout(ttPoll,1000);return;}
+    if(j.state==='done'&&j.result){
+      const L=epLog(),r=j.result;
+      if(!L.transcript||L.transcript.id!==j.id){
+        L.transcript={id:j.id,fps:r.fps,language:r.language,speakers:r.speakers,sources:r.sources,files:r.files_written,
+          turns:r.turns.map(t=>({tc:t.tc,out_tc:t.out_tc,speaker:t.speaker,text:t.text}))};
+        if(!saveLog()) toast('⚠ Transkriptet är för stort för att sparas i webbläsaren – exportera direkt');
+        toast('Transkriptet är klart och inläst');ttRender();exUpd();
+      }
+    }
+  }).catch(()=>{ttTimer=setTimeout(ttPoll,3000);});
+}
+async function ttAction(a){
+  try{
+    if(a==='ex-tt-retry'){ttRender();return true;}
+    if(a==='ex-tt-start'){
+      location.href='trustissues://start';const m=$('#ttMsg');
+      for(let i=0;i<45;i++){await new Promise(r=>setTimeout(r,2000));if(m) m.textContent='Väntar på att appen startar … ('+(i*2)+' s)';
+        try{await tt('/status');return ttRender(),true;}catch(e){}}
+      if(m) m.innerHTML='Hittar inte appen. Är <b>Trust Issues.app</b> öppnad en gång från Program? Chrome kan också ha frågat om tillgång till enheter på datorn – tillåt det.';return true;}
+    if(a==='ex-tt-stop'){await tt('/quit',{});ttUp=false;setTimeout(ttRender,800);return true;}
+    if(a==='ex-tt-clear'){if(confirm('Ta bort transkriptet från loggen? (Filerna bredvid kamerafilen finns kvar.)')){delete epLog().transcript;saveLog();ttRender();exUpd();}return true;}
+    if(a==='ex-tt-pick'){const m=$('#ttFiles');if(m) m.textContent='Fildialogen är öppen på datorn …';const j=await tt('/pick',{});ttFiles=j.files||[];ttRender();return true;}
+    if(a==='ex-tt-run'){
+      settings.ttHost=$('#ttN1').value.trim()||settings.hostName||'Värd';settings.ttLang=$('#ttLang').value;saveSettings();
+      await tt('/transcribe',{paths:ttFiles.map(f=>f.path),names:{1:settings.ttHost,2:$('#ttN2').value.trim()||'Gäst'},lang:settings.ttLang,base:$('#ttN2').value.trim()||'transkript'});
+      ttRender();return true;}
+  }catch(e){toast('⚠ '+e.message);}
+  return true;
 }
 async function copyText(t){
   try{await navigator.clipboard.writeText(t);return true;}catch(e){
     const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy');}catch(x){}ta.remove();return ok;}
 }
 function exportAction(a){
-  const len=(($('#exLen')||{}).value||'').trim();
+  const len=($('#exLen')||{}).value||'';
+  if(a.startsWith('ex-tt-')){ttAction(a);return true;}
   switch(a){
-    case 'ex-copy':copyText(buildMarkdown(len)).then(ok=>toast(ok?'Kopierat. Klistra in i Claude eller ChatGPT och bifoga transkriptet.':'Kunde inte kopiera – använd Ladda ner .md'));return true;
-    case 'ex-md':dl(fileBase()+'.md',buildMarkdown(len),'text/markdown');return true;
+    case 'ex-copy':copyText(buildMarkdown(len.trim())).then(ok=>toast(ok?'Kopierat – klistra in i Claude eller ChatGPT och bifoga transkriptet':'Kunde inte kopiera – använd Ladda ner .md'));return true;
+    case 'ex-md':dl(fileBase()+'.md',buildMarkdown(len.trim()),'text/markdown');return true;
     case 'ex-csv':dl(fileBase()+'.csv',buildCsv(),'text/csv');return true;
     case 'ex-retime':{
       if(!settings.tcSync){toast('Synka först – det finns ingen synk att räkna om med');return true;}
       if(!confirm('Räkna om tidskoderna för klipp som saknar egen synk, med nuvarande synk? Klipp som synkades under inspelningen ändras inte.')) return true;
       const L=epLog();let n=0;
       L.clips.forEach(c=>{if(!(c.sync&&c.sync.own)){c.sync={...settings.tcSync,own:false};n++;}retimeClip(c.n);});
-      L.entries.forEach(e=>{if(!e.rec) e.tc=tcAt(e.ms);});saveLog();renderLog();$('#exPre').textContent=buildMarkdown(len);toast(`${n} klipp omräknade`);return true;}
+      L.entries.forEach(e=>{if(!e.rec) e.tc=tcAt(e.ms);});saveLog();renderLog();$('#exPre').textContent=buildMarkdown(len.trim());toast(`${n} klipp omräknade`);return true;}
     case 'ex-clear':if(!confirm('Rensa hela loggen för den här episoden? (Exportera först om du vill spara den.)')) return true;
-      logs[data.activeEpisodeId]={clips:[],entries:[]};live.rec={on:false,clip:0,lastKey:null};saveLog();saveLive();closeModal();renderLog();renderLive();broadcast();return true;
+      logs[data.activeEpisodeId]={clips:[],entries:[],notes:''};live.rec={on:false,clip:0,lastKey:null};saveLog();saveLive();closeModal();renderLog();renderLive();broadcast();return true;
   }
   return false;
 }

@@ -200,18 +200,26 @@ function fakeRelay() {
   eq(L.clips.map(c => [c.n, c.startTc, c.endTc, !!c.sync]), [[1, '10:00:00:00', '10:02:59:00', true], [2, '10:04:04:00', '10:04:19:00', true]], 'klipp får start- och sluttidskod');
   const md = await S(() => buildMarkdown('12 minuter'));
   const has = (re, name) => ok(re.test(md), name);
-  has(/\*\*F1 · Kärnfråga:\*\* When did you last change your mind\?\n- Visad K1 `10:00:00:00` → `10:00:20:00` \(0:20\)/, 'export: fråga med IN → OUT och längd');
-  has(/\*\*F2 · Kärnfråga:\*\*[^\n]*\n- Inte visad under REC/, 'export: fråga som bara passerades (1 s) räknas inte som ställd');
-  has(/- Visad K1 `10:00:21:00` → `10:01:56:00` \(1:35\)\n  - `10:00:51:00` \*\*Bra svar\*\*\n  - `10:01:31:00` Följdfrågan visas/, 'export: tagg och följdfråga i tidsordning under rätt tagning');
-  has(/`10:01:59:00` \*\*Bra svar\*\* _\(direkt efter kortbyte, 3 s; gäller troligen F3\)_/, 'export: tagg strax efter kortbyte pekas mot föregående fråga');
+  has(/\*\*F1\. When did you last change your mind\?\*\* _\(Kärnfråga\)_\n- På skärm `10:00:00:00` → `10:00:20:00` \(K1 \+0:00, 0:20\)/, 'export: fråga med tid på skärm, relativ tid och längd');
+  has(/\*\*F2\.[^\n]*\n- _Ingen loggad tid/, 'export: fråga som bara passerades (1 s) räknas inte som ställd');
+  has(/- På skärm `10:00:21:00` → `10:01:56:00` \(K1 \+0:21, 1:35\)\n- `10:00:51:00` \(K1 \+0:51\) \*\*Bra svar\*\*\n- `10:01:31:00` \(K1 \+1:31\) Följdfråga: What would you do differently\?/, 'export: tagg och följdfråga under rätt fråga');
+  has(/`10:01:59:00` \(K1 \+1:59\) \*\*Bra svar\*\* ⚠ 3 s efter byte från F3 – kan gälla F3/, 'export: tagg strax efter frågebyte flaggas mot föregående fråga');
   has(/Kommentar: =SUMMA\(A1\) rolig \| historia/, 'export: kommentar med');
-  has(/Till programledaren: Ta om frågan/, 'export: meddelanden till programledaren med');
-  has(/\n- `10:03:59:00` \*\*Klipp bort\*\* _\(loggad utanför REC\)_/, 'export: rader utanför REC märks ut');
-  has(/\| K1 \| 10:00:00:00 \| 10:02:59:00 \| 2:59 \| kamerans tidskod \(synkad för hand, ca ±0,2 s\), synkad före klippet kl\. \d\d:\d\d \|/, 'export: klipptabell med tidskodens källa');
-  has(/Mål för klippet: 12 minuter/, 'export: målet för klippet står med');
-  has(/Prioritera material märkt "Bra svar", "Bra tagning", "Citat", "Skratt"/, 'export: taggarna förklaras');
-  has(/\| 10:02:49:00 \| K1 \| F4 \| Kommentar: =SUMMA\(A1\) rolig \\\| historia \|/, 'export: tidslinjen tål lodstreck i text');
+  has(/Till värden: Ta om frågan/, 'export: meddelanden till värden med');
+  has(/`10:03:59:00` \(–\) \*\*Klipp bort\*\*/, 'export: rader utanför REC saknar relativ tid');
+  has(/\| K1 \| 10:00:00:00 \| 10:02:59:00 \| 2:59 \| K1 \+0:00 = 10:00:00:00 \|/, 'export: klipptabell');
+  has(/- \*\*Mållängd:\*\* 12 minuter/, 'export: mållängden står med');
+  has(/\*\*Steg 5 – Premiere-struktur\.\*\*[\s\S]*`Anna Exempel` > `BLOCK 1 \(WARM-UP\)`, `BLOCK 2`/, 'export: Premiere-strukturen byggs av gäst och sektioner');
+  has(/\| 10:02:49:00 \| K1 \+2:49 \| F4 \| Kommentar: =SUMMA\(A1\) rolig \\\| historia \|/, 'export: tidslinjen tål lodstreck i text');
+  const J = (() => { try { return JSON.parse(md.split('```json\n')[1].split('\n```')[0]); } catch (e) { return null; } })();
+  ok(J && J.log.length === L.entries.length && J.script[0].cards[0].f === 'F1' && J.clips.length === 2, 'export: JSON-blocket går att läsa och innehåller hela loggen');
   ok(!/undefined|NaN|\[object/.test(md), 'export: inga trasiga värden');
+  await S(() => { const L = epLog(); L.notes = 'Värden bad om nästa fråga tidigt.'; L.transcript = { id: 't', fps: 25, sources: [{ path: '/vol/A001.MXF', start_tc: '10:00:00:00' }], turns: [{ tc: '10:00:22:10', speaker: 'Värd', text: 'You have run three companies.' }, { tc: '10:00:55:00', speaker: 'Anna', text: 'The first one taught me patience.' }] }; });
+  const md2 = await S(() => buildMarkdown(''));
+  ok(/## Inspelningsnoteringar[^\n]*\n\nVärden bad om nästa fråga tidigt\./.test(md2), 'export: inspelningsnoteringar med');
+  ok(/## Transkript med logg[\s\S]*`10:00:21:00` ▸ _På skärm: F3_  \n`10:00:22:10` \*\*Värd:\*\* You have run three companies\.  \n`10:00:51:00` ⟡ \*\*\[Bra svar\]\*\* _\(loggad på F3\)_  \n`10:00:55:00` \*\*Anna:\*\*/.test(md2), 'export: transkriptet flätas ihop med loggen i tidsordning');
+  ok(/Synk behövs inte/.test(md2) && !/Synk behövs inte/.test(md), 'export: instruktionen anpassas efter om transkript finns');
+  await S(() => { const L = epLog(); delete L.transcript; L.notes = ''; });
   const csv = await S(() => buildCsv());
   ok(/"'=SUMMA\(A1\) rolig \| historia"/.test(csv) && csv.startsWith('﻿"Tidskod";"Klipp";"Tid in i klippet"'), 'csv: formler oskadliggörs, rubriker stämmer');
   // synk under REC räknar om hela det pågående klippet, tidigare klipp rörs inte
@@ -221,7 +229,7 @@ function fakeRelay() {
     ['01:00:00:00', '01:00:20:00', true, '10:00:00:00', '01:00:10:00'], 'synk under REC räknar om pågående klipp och lämnar tidigare klipp orörda');
   // kort som tas bort: loggraderna försvinner inte ur exporten
   await S(() => { const f = findCard(epLog().entries.find(e => e.kind === 'note').cardId); f.sec.cards = f.sec.cards.filter(c => c !== f.card); });
-  ok(/## Övriga anteckningar[\s\S]*Kommentar: =SUMMA/.test(await S(() => buildMarkdown(''))), 'export: rader för borttagna kort hamnar under Övriga anteckningar');
+  ok(/## Övriga anteckningar[\s\S]*=SUMMA\(A1\)/.test(await S(() => buildMarkdown(''))), 'export: rader för borttagna kort hamnar under Övriga anteckningar');
   await S(() => { Date.now = () => window._now; });
   // gränssnittet: REC-knapp, taggknapp, kommentar med tidskod från när man började skriva
   await fresh();
