@@ -1691,7 +1691,7 @@ async function ttRender(){
     <div class="row"><label>Kanal 1<input id="ttN1" value="${esc(settings.ttHost||settings.hostName||'Värd')}"></label><label>Kanal 2<input id="ttN2" value="${esc(ttGuestName())}"></label>
     <label>Språk<select id="ttLang"><option value="en">Engelska</option><option value="sv">Svenska</option></select></label></div>
     <div class="row"><button data-a="ex-tt-pick" ${busy?'disabled':''}>Välj kamerafil…</button><span id="ttFiles" class="muted">${ttFiles.length?ttFiles.map(f=>esc(f.name)+' · start '+esc(f.start_tc||'?')+' · '+Math.round(f.duration/60)+' min').join('<br>'):'Ingen fil vald'}</span></div>
-    <div class="row"><button class="primary" data-a="ex-tt-run" ${busy||!ttFiles.length?'disabled':''}>Transkribera</button><span id="ttMsg" class="muted"></span></div>
+    <div class="row"><button class="primary" data-a="ex-tt-run" ${busy||!ttFiles.length?'disabled':''}>Transkribera</button>${busy?'<button data-a="ex-tt-cancel" class="danger">Avbryt</button>':''}<span id="ttMsg" class="muted"></span></div>
     <div class="tt-bar"><div id="ttBar"></div></div>`;
   $('#ttLang').value=settings.ttLang||'en';
   if(busy) ttPoll();
@@ -1701,8 +1701,9 @@ function ttPoll(){
   tt('/job').then(j=>{
     const bar=$('#ttBar'),msg=$('#ttMsg');
     if(bar) bar.style.width=(j.pct||0)+'%';
-    if(msg) msg.textContent=j.state==='running'?`${j.msg||''} · ${Math.round(j.pct||0)} % · ${fmtDur((j.elapsed||0)*1000)}`:j.state==='error'?'⚠ '+j.msg:'';
+    if(msg) msg.textContent=j.state==='running'?`${j.msg||''} · ${Math.round(j.pct||0)} % · ${fmtDur((j.elapsed||0)*1000)}`:j.state==='error'?'⚠ '+j.msg:j.state==='cancelled'?'Transkriberingen avbröts.':'';
     if(j.state==='running'){ttTimer=setTimeout(ttPoll,1000);return;}
+    if(j.state==='cancelled'||j.state==='error'){if(document.querySelector('[data-a=ex-tt-cancel]')) ttRender().then(()=>{const m=$('#ttMsg');if(m) m.textContent=j.state==='cancelled'?'Transkriberingen avbröts.':'⚠ '+j.msg;});return;}
     if(j.state==='done'&&j.result){
       const L=epLog(),r=j.result;
       if(!L.transcript||L.transcript.id!==j.id){
@@ -1718,6 +1719,7 @@ async function ttAction(a){
   try{
     if(a==='ex-tt-retry'){ttRender();return true;}
     if(a==='ex-tt-start'){if(await startHelper($('#ttMsg'))) ttRender();return true;}
+    if(a==='ex-tt-cancel'){if(!confirm('Avbryta transkriberingen?')) return true;const m=$('#ttMsg');if(m) m.textContent='Avbryter …';await tt('/cancel',{});return true;}
     if(a==='ex-tt-stop'){await tt('/quit',{});ttUp=false;setTimeout(ttRender,800);return true;}
     if(a==='ex-tt-clear'){if(confirm('Ta bort transkriptet från loggen? (Filerna bredvid kamerafilen finns kvar.)')){delete epLog().transcript;saveLog();ttRender();exUpd();}return true;}
     if(a==='ex-tt-pick'){const m=$('#ttFiles');if(m) m.textContent='Fildialogen är öppen på datorn …';const j=await tt('/pick',{});ttFiles=j.files||[];ttRender();return true;}

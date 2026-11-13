@@ -36,7 +36,8 @@ class App(rumps.App):
         super().__init__("LS", quit_button=None)
         self.status = rumps.MenuItem("Startar …")
         self.storage = rumps.MenuItem("Lagring: räknar …")
-        self.menu = [self.status, None,
+        self.cancel_item = rumps.MenuItem("Avbryt transkribering", callback=self.cancel)
+        self.menu = [self.status, self.cancel_item, None,
                      rumps.MenuItem("Öppna Logsync", callback=self.open_app),
                      rumps.MenuItem("Visa logg", callback=self.show_log), None,
                      self.storage, rumps.MenuItem("Visa i Finder", callback=self.show_folder),
@@ -91,8 +92,13 @@ class App(rumps.App):
                     "Allt är borttaget utom " + ", ".join(left) + ". Dra den till papperskorgen i Finder.")
         rumps.quit_application()
 
+    def cancel(self, _):
+        if H.JOB.get("state") == "running":
+            H.cancel()
+
     def tick(self, _):
         j = H.JOB
+        self.cancel_item.set_callback(self.cancel if j.get("state") == "running" else None)
         if j.get("state") == "running":
             self.title = f"LS {round(j.get('pct') or 0)} %"
             self.status.title = j.get("msg") or "Transkriberar …"

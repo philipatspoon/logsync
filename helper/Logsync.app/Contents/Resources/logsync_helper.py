@@ -57,6 +57,7 @@ def _patch_tqdm():
                 _cur["total"], _cur["done"] = total or 0, 0
             def update(self, n=1):
                 _cur["done"] += n
+                T.check_cancel()   # Whisper anropar update efter varje bit: avbryt här
             def __enter__(self):
                 return self
             def __exit__(self, *a):
@@ -110,6 +111,7 @@ def run_job(jid, paths, names, lang, base):
 
     try:
         _patch_tqdm()
+        T.CANCEL.clear()
         files = [Path(p) for p in paths]
         nfiles = len(files)
         JOB.update(state="running", msg="Startar …", started=t0)
@@ -139,6 +141,8 @@ def run_job(jid, paths, names, lang, base):
                 T.process = orig
         res.pop("words", None)  # appen behöver replikerna; orden ligger i JSON-filen
         JOB.update(state="done", pct=100, msg="Klart", result=res, elapsed=round(time.time() - t0))
+    except T.Cancelled:
+        JOB.update(state="cancelled", msg="Avbruten", elapsed=round(time.time() - t0))
     except Exception as e:
         JOB.update(state="error", msg=str(e), trace=traceback.format_exc())
 
@@ -208,6 +212,11 @@ class H(BaseHTTPRequestHandler):
             if ON_QUIT:
                 threading.Timer(0.3, ON_QUIT).start()
             return
+        if self.path == "/cancel":
+            if JOB.get("state") != "running":
+                return self._send(200, {"ok": True, "state": JOB.get("state")})
+            cancel()
+            return self._send(200, {"ok": True, "state": "cancelling"})
         if self.path == "/brand":  # hämta branding från en webbplats
             try:
                 return self._send(200, B.fetch_brand(body.get("url"), want_fonts=body.get("fonts", True)))
@@ -242,6 +251,13 @@ class H(BaseHTTPRequestHandler):
                                  daemon=True).start()
                 return self._send(200, {"id": jid})
         self._send(404, {"error": "not found"})
+
+
+def cancel():
+    """Avbryter pågående transkribering (ffmpeg stoppas direkt, Whisper efter pågående bit)."""
+    if JOB.get("state") == "running":
+        JOB["msg"] = "Avbryter …"
+        T.CANCEL.set()
 
 
 def serve():

@@ -96,15 +96,16 @@ function fakeTranscriber() {
     const send = o => { res.writeHead(200, H); res.end(JSON.stringify(o)); };
     if (req.url === '/status') return send({ ok: true, version: '2', state: st.job.state });
     if (req.url === '/pick') return send({ files: [{ path: '/Volumes/KORT/A001C001.MXF', name: 'A001C001.MXF', start_tc: '10:00:00:00', fps: 25, duration: 1500, channels: 2 }] });
-    if (req.url === '/transcribe') { st.job = { id: 'jobb1', state: 'running', pct: 10, msg: 'Transkriberar', elapsed: 1 }; st.polls = 0; return send({ id: 'jobb1' }); }
+    if (req.url === '/transcribe') { st.job = { id: 'jobb1', state: 'running', pct: 10, msg: 'Transkriberar', elapsed: 1 }; st.polls = 0; st.hold = st.holdNext; st.holdNext = false; return send({ id: 'jobb1' }); }
+    if (req.url === '/cancel') { if (st.job.state === 'running') st.job = { id: 'jobb1', state: 'cancelled', msg: 'Avbruten' }; return send({ ok: true }); }
     if (req.url === '/job') {
-      if (st.job.state === 'running' && ++st.polls >= 2) st.job = { id: 'jobb1', state: 'done', pct: 100, result: { fps: 25, language: 'en', speakers: ['Värd', 'Anna'], files_written: [],
+      if (st.job.state === 'running' && !st.hold && ++st.polls >= 2) st.job = { id: 'jobb1', state: 'done', pct: 100, result: { fps: 25, language: 'en', speakers: ['Värd', 'Anna'], files_written: [],
         sources: [{ path: '/Volumes/KORT/A001C001.MXF', start_tc: '10:00:00:00' }], turns: [{ tc: '10:00:03:00', out_tc: '10:00:06:00', speaker: 'Värd', text: 'Welcome.' }, { tc: '10:00:07:00', out_tc: '10:00:12:00', speaker: 'Anna', text: 'Thank you for having me.' }] } };
       return send(st.job);
     }
     res.writeHead(404, H); res.end('{}');
   });
-  return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ url: 'http://127.0.0.1:' + srv.address().port, close: () => srv.close() })));
+  return new Promise(ok => srv.listen(0, '127.0.0.1', () => ok({ url: 'http://127.0.0.1:' + srv.address().port, st, close: () => srv.close() })));
 }
 
 (async () => {
@@ -409,6 +410,10 @@ function fakeTranscriber() {
   ok(await page.$('[data-a=ex-tt-pick]') !== null, 'exportfönstret ser att appen är igång');
   await page.click('[data-a=ex-tt-pick]'); await page.waitForFunction(() => /A001C001/.test(document.querySelector('#ttFiles').textContent), null, { timeout: 5000 }).catch(() => {});
   ok(/A001C001\.MXF · start 10:00:00:00 · 25 min/.test(await page.textContent('#ttFiles')), 'vald kamerafil visas med starttidskod och längd');
+  trans.st.holdNext = true; await page.click('[data-a=ex-tt-run]');
+  await page.waitForSelector('[data-a=ex-tt-cancel]', { timeout: 5000 }).catch(() => {});
+  await page.click('[data-a=ex-tt-cancel]'); await page.waitForTimeout(1600);
+  ok(/avbröts/.test(await page.textContent('#ttMsg')) && await page.$('[data-a=ex-tt-cancel]') === null && !(await S(() => epLog().transcript)), 'en transkribering kan avbrytas');
   await page.click('[data-a=ex-tt-run]');
   await page.waitForFunction(() => epLog().transcript, null, { timeout: 12000 }).catch(() => {});
   eq(await S(() => epLog().transcript && epLog().transcript.turns.length), 2, 'transkriptet läses in i loggen när jobbet är klart');

@@ -16,10 +16,20 @@ Ut (bredvid första filen, eller i --ut):
   <namn>_transkript.json  – för appen och Claude (ord, repliker, tidskoder)
   <namn>_transkript.md    – läsbart, en replik per rad med kamera-TC
 """
-import argparse, json, os, re, subprocess, sys, tempfile, wave
+import argparse, json, os, re, subprocess, sys, tempfile, threading, time, wave
 from pathlib import Path
 
 MODEL_DEFAULT = "mlx-community/whisper-large-v3-turbo"
+CANCEL = threading.Event()   # sätts av hjälptjänsten när användaren avbryter
+
+
+class Cancelled(Exception):
+    pass
+
+
+def check_cancel():
+    if CANCEL.is_set():
+        raise Cancelled()
 
 
 # ---------- tidskod ----------
@@ -91,7 +101,16 @@ def extract_all(path, jobs):
         if ch["pan"]:
             cmd += ["-af", ch["pan"]]
         cmd += ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)]
-    subprocess.run(cmd, check=True)
+    check_cancel()
+    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+    while proc.poll() is None:          # vänta, men avbryt direkt om användaren ber om det
+        if CANCEL.is_set():
+            proc.kill(); proc.wait()
+            raise Cancelled()
+        time.sleep(0.3)
+    if proc.returncode:
+        err = proc.stderr.read().decode("utf-8", "replace").strip().splitlines()
+        raise RuntimeError("ffmpeg: " + (err[-1] if err else f"fel {proc.returncode}"))
 
 
 # ---------- energi (för överhörning) ----------
@@ -158,7 +177,17 @@ def process(path, names, model, lang, margin, keep_tmp, progress=None):
     print(f"• {path.name}: start {info['start_tc']} · {fps:g} fps · {info['duration']/60:.1f} min · "
           f"{len(info['channels'])} ljudkanaler · använder " + ", ".join("K%d=%s" % (c["n"], names[c["n"]]) for c in chans))
 
-    tmp = Path(tempfile.mkdtemp(prefix="tt_"))
+    tmp = Path(tempfile.mkdtemp(prefix="logsync_"))
+    try:
+        return _process(path, names, model, lang, margin, keep_tmp, say, info, fps, nom, start, chans, tmp)
+    finally:
+        if not keep_tmp:   # städa även när det avbryts eller går fel
+            for f in tmp.iterdir():
+                f.unlink()
+            tmp.rmdir()
+
+
+def _process(path, names, model, lang, margin, keep_tmp, say, info, fps, nom, start, chans, tmp):
     sig, raw = {}, {}
     wavs = {c["n"]: tmp / f"ch{c['n']}.wav" for c in chans}
     size = path.stat().st_size / 1e9
@@ -167,6 +196,7 @@ def process(path, names, model, lang, margin, keep_tmp, progress=None):
     for i, c in enumerate(chans):
         wav = wavs[c["n"]]
         sig[c["n"]] = load_wav(wav)
+        check_cancel()
         say("whisper", f"{path.name}: transkriberar {names[c['n']]}", (i, len(chans)))
         raw[c["n"]] = transcribe(wav, model, lang)
 
@@ -184,10 +214,6 @@ def process(path, names, model, lang, margin, keep_tmp, progress=None):
                      file=path.name)
             words.append(w)
     words.sort(key=lambda w: w["start"])
-    if not keep_tmp:
-        for f in tmp.iterdir():
-            f.unlink()
-        tmp.rmdir()
     print(f"  {len(words)} ord · {dropped} borttagna som överhörning")
     return info, words
 
