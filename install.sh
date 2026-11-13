@@ -54,9 +54,11 @@ end startLogsync
 AS
 osacompile -o "$APP" "$TMP/Logsync.applescript"
 P="$APP/Contents/Info.plist"; PB=/usr/libexec/PlistBuddy
-$PB -c "Set :CFBundleIdentifier app.logsync.launcher" "$P"
-$PB -c "Set :CFBundleName Logsync" "$P" 2>/dev/null || $PB -c "Add :CFBundleName string Logsync" "$P"
-$PB -c "Add :LSUIElement bool true" "$P" 2>/dev/null || $PB -c "Set :LSUIElement true" "$P"
+# Sätter ett värde oavsett om nyckeln redan finns (osacompile skapar olika nycklar i olika macOS-versioner)
+plset(){ $PB -c "Set :$1 $3" "$P" 2>/dev/null || $PB -c "Add :$1 $2 $3" "$P"; }
+plset CFBundleIdentifier string app.logsync.launcher
+plset CFBundleName string Logsync
+plset LSUIElement bool true
 $PB -c "Delete :CFBundleURLTypes" "$P" 2>/dev/null || true
 $PB -c "Add :CFBundleURLTypes array" -c "Add :CFBundleURLTypes:0 dict" \
     -c "Add :CFBundleURLTypes:0:CFBundleURLName string app.logsync.launcher" \
