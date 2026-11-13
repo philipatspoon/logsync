@@ -1,0 +1,65 @@
+#!/bin/bash
+# Installerar Logsync-appen på en Mac:
+#   curl -fsSL https://philipatspoon.github.io/logsync/install.sh | bash
+#
+# Appen byggs här på datorn (med osacompile) i stället för att laddas ner färdig.
+# En app som skapats lokalt räknas inte som nedladdad, så macOS spärrar den inte
+# på datorer som bara tillåter appar från App Store och kända utvecklare.
+set -euo pipefail
+BASE="https://philipatspoon.github.io/logsync"
+SUPPORT="$HOME/Library/Application Support/Logsync"
+CODE="$SUPPORT/app"                         # Python-koden och startskripten
+APP="$HOME/Applications/Logsync.app"         # appen du dubbelklickar på
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+[ "$(uname)" = "Darwin" ] || { echo "Logsync-appen fungerar bara på Mac."; exit 1; }
+echo "• Hämtar Logsync …"
+curl -fsSL -o "$TMP/logsync.zip" "$BASE/Logsync-app.zip"
+ditto -x -k "$TMP/logsync.zip" "$TMP/u"
+
+echo "• Lägger koden i $CODE"
+pkill -f "Logsync/app/menubar.py" 2>/dev/null || true
+rm -rf "$CODE"; mkdir -p "$CODE"
+cp "$TMP/u/Logsync.app/Contents/Resources/"* "$CODE/"
+chmod 755 "$CODE/"*.sh
+
+echo "• Bygger appen i $APP"
+mkdir -p "$HOME/Applications"; rm -rf "$APP"
+cat > "$TMP/Logsync.applescript" <<'AS'
+on run
+	startLogsync()
+end run
+on open location theURL
+	startLogsync()
+end open location
+on startLogsync()
+	set s to POSIX path of (path to home folder) & "Library/Application Support/Logsync/app/start.sh"
+	do shell script "/bin/bash " & quoted form of s & " >/dev/null 2>&1 &"
+end startLogsync
+AS
+osacompile -o "$APP" "$TMP/Logsync.applescript"
+P="$APP/Contents/Info.plist"; PB=/usr/libexec/PlistBuddy
+$PB -c "Set :CFBundleIdentifier app.logsync.launcher" "$P"
+$PB -c "Set :CFBundleName Logsync" "$P" 2>/dev/null || $PB -c "Add :CFBundleName string Logsync" "$P"
+$PB -c "Add :LSUIElement bool true" "$P" 2>/dev/null || $PB -c "Set :LSUIElement true" "$P"
+$PB -c "Delete :CFBundleURLTypes" "$P" 2>/dev/null || true
+$PB -c "Add :CFBundleURLTypes array" -c "Add :CFBundleURLTypes:0 dict" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLName string app.logsync.launcher" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string logsync" "$P"
+codesign --force --deep -s - "$APP" 2>/dev/null || true      # lokal signatur efter ändringen
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREG" ] && "$LSREG" -f "$APP" || true                 # så att logsync:// hittar den här appen
+
+if [ -e /Applications/Logsync.app ]; then
+  echo "• Tar bort den gamla appen i Program …"
+  rm -rf /Applications/Logsync.app 2>/dev/null || echo "  Gick inte från Terminal – dra /Applications/Logsync.app till papperskorgen i Finder."
+fi
+
+echo "• Startar Logsync"
+open "$APP"
+echo
+echo "Klart. Om några sekunder syns LS i menyraden."
+echo "Appen ligger i Program-mappen i din hemmapp (~/Applications) och kan startas därifrån eller från webbläsaren."
+echo "Logg: tail -n 30 ~/Library/Logs/Logsync.log"

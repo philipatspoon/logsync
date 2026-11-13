@@ -4,7 +4,13 @@ En liten menyradsapp för Mac som gör det Logsync i webbläsaren inte kan göra
   - transkriberar kamerafiler med kamerans tidskod
   - hämtar branding (logotyp, färger, typsnitt) från en webbplats
 
-Första gången
+Installera (rekommenderas)
+Kör i Terminal:
+    curl -fsSL https://philipatspoon.github.io/logsync/install.sh | bash
+Appen byggs då på datorn och hamnar i Program-mappen i din hemmapp. Det fungerar
+även på datorer där IT bara tillåter appar från App Store och kända utvecklare.
+
+Eller för hand
 1. Lägg Logsync.app i mappen Program.
 2. Öppna den. macOS stoppar den första gången eftersom den inte är signerad:
    Systeminställningar → Integritet och säkerhet → längst ned "Öppna ändå".

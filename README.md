@@ -78,7 +78,13 @@ En liten menyradsapp som gör det webbläsaren inte kan:
 - **transkriberar kamerafiler** lokalt med kamerans tidskod, en ljudkanal per person, och läser in transkriptet i loggen (*Exportera logg → Transkript*)
 - **hämtar branding** från en webbplats
 
-Ladda ner [Logsync-app.zip](https://philipatspoon.github.io/logsync/Logsync-app.zip), packa upp och följ `LÄS MIG.txt`. Appen startas från Logsync i webbläsaren och stängs av därifrån eller från menyraden. Inget körs i bakgrunden när den är avstängd.
+Installera genom att köra det här i Terminal:
+
+```bash
+curl -fsSL https://philipatspoon.github.io/logsync/install.sh | bash
+```
+
+Appen byggs på datorn och läggs i Program-mappen i din hemmapp. Det fungerar även på datorer där IT bara tillåter appar från App Store och kända utvecklare. Alternativt: ladda ner [Logsync-app.zip](https://philipatspoon.github.io/logsync/Logsync-app.zip) och följ `LÄS MIG.txt`. Appen startas från Logsync i webbläsaren och stängs av därifrån eller från menyraden. Inget körs i bakgrunden när den är avstängd.
 
 Appen lyssnar bara på den egna datorn och svarar bara de adresser som står i `ALLOWED_ORIGINS` överst i `helper/Logsync.app/Contents/Resources/logsync_helper.py`. Kör du Logsync från en annan adress lägger du till den där.
 
