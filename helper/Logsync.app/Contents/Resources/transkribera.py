@@ -79,10 +79,18 @@ def probe(path):
 
 
 def extract(path, ch, out_wav):
-    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(path), "-map", ch["map"], "-vn"]
-    if ch["pan"]:
-        cmd += ["-af", ch["pan"]]
-    cmd += ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)]
+    extract_all(path, [(ch, out_wav)])
+
+
+def extract_all(path, jobs):
+    """Plockar ut flera ljudkanaler i EN genomläsning av filen.
+    Ljudet ligger invävt med bilden, så varje genomläsning läser hela filen (ofta tiotals GB)."""
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(path)]
+    for ch, out_wav in jobs:
+        cmd += ["-map", ch["map"], "-vn", "-sn", "-dn"]
+        if ch["pan"]:
+            cmd += ["-af", ch["pan"]]
+        cmd += ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)]
     subprocess.run(cmd, check=True)
 
 
@@ -152,10 +160,12 @@ def process(path, names, model, lang, margin, keep_tmp, progress=None):
 
     tmp = Path(tempfile.mkdtemp(prefix="tt_"))
     sig, raw = {}, {}
+    wavs = {c["n"]: tmp / f"ch{c['n']}.wav" for c in chans}
+    size = path.stat().st_size / 1e9
+    say("ljud", f"{path.name}: plockar ut ljudet ({size:.0f} GB läses en gång)".replace(".", ","))
+    extract_all(path, [(c, wavs[c["n"]]) for c in chans])
     for i, c in enumerate(chans):
-        wav = tmp / f"ch{c['n']}.wav"
-        say("ljud", f"{path.name}: plockar ut kanal {c['n']} ({names[c['n']]})")
-        extract(path, c, wav)
+        wav = wavs[c["n"]]
         sig[c["n"]] = load_wav(wav)
         say("whisper", f"{path.name}: transkriberar {names[c['n']]}", (i, len(chans)))
         raw[c["n"]] = transcribe(wav, model, lang)
