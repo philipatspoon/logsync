@@ -29,4 +29,9 @@ Appen lyssnar bara på den egna datorn (127.0.0.1:47811) och svarar bara
 Logsync-sidan. Vilka adresser som räknas dit står överst i
 Contents/Resources/logsync_helper.py (ALLOWED_ORIGINS).
 
-Felsökning: LS-menyn → Visa logg.
+Felsökning
+- LS-menyn → Visa logg, eller i Terminal:  tail -n 30 ~/Library/Logs/Logsync.log
+- Startar den inte alls: kör den direkt i Terminal, så syns eventuella fel:
+    bash /Applications/Logsync.app/Contents/Resources/run.sh
+- Stoppar macOS appen vid första öppningen, ta bort nedladdningsmärkningen:
+    xattr -dr com.apple.quarantine /Applications/Logsync.app
