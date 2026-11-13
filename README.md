@@ -86,6 +86,8 @@ curl -fsSL https://philipatspoon.github.io/logsync/install.sh | bash
 
 Appen byggs på datorn och läggs i Program-mappen i din hemmapp. Det fungerar även på datorer där IT bara tillåter appar från App Store och kända utvecklare. Alternativt: ladda ner [Logsync-app.zip](https://philipatspoon.github.io/logsync/Logsync-app.zip) och följ `LÄS MIG.txt`. Appen startas från Logsync i webbläsaren och stängs av därifrån eller från menyraden. Inget körs i bakgrunden när den är avstängd.
 
+Allt appen laddar ner – Whisper-modellen, Python och paketen, totalt cirka 3 GB – ligger i en enda mapp, `~/Library/Application Support/Logsync`. *Avinstallera Logsync* i LS-menyn tar bort appen och hela mappen.
+
 Appen lyssnar bara på den egna datorn och svarar bara de adresser som står i `ALLOWED_ORIGINS` överst i `helper/Logsync.app/Contents/Resources/logsync_helper.py`. Kör du Logsync från en annan adress lägger du till den där.
 
 ## Backup och flytt

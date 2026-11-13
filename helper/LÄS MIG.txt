@@ -30,6 +30,12 @@ Kanal 1 = värdens mygga, kanal 2 = gästens (ändras i Logsync).
 Resultatet läses in i loggen och sparas även bredvid kamerafilen:
 <Gäst>_transkript.md och <Gäst>_transkript.json
 
+Lagring och avinstallation
+Allt appen laddar ner – Whisper-modellen (ca 1,6 GB), Python och paketen (ca 1,5 GB) –
+ligger i en enda mapp: ~/Library/Application Support/Logsync
+LS-menyn visar hur mycket den tar. "Avinstallera Logsync …" i samma meny tar bort
+appen och hela mappen. Manus, loggar och transkript påverkas inte.
+
 Säkerhet
 Appen lyssnar bara på den egna datorn (127.0.0.1:47811) och svarar bara
 Logsync-sidan. Vilka adresser som räknas dit står överst i

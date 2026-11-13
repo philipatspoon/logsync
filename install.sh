@@ -13,6 +13,17 @@ APP="$HOME/Applications/Logsync.app"         # appen du dubbelklickar på
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 [ "$(uname)" = "Darwin" ] || { echo "Logsync-appen fungerar bara på Mac."; exit 1; }
+
+# Avinstallera:  curl -fsSL https://philipatspoon.github.io/logsync/install.sh | bash -s -- --avinstallera
+if [ "${1:-}" = "--avinstallera" ]; then
+  pkill -f "Logsync/app/menubar.py" 2>/dev/null || true; pkill -f "Logsync.app/Contents/Resources/menubar.py" 2>/dev/null || true
+  du -sh "$SUPPORT" 2>/dev/null | awk '{print "• Tar bort "$1" i '"'"'"$2" "$3" "$4"'"'"'"}' || true
+  rm -rf "$SUPPORT" "$APP" "$HOME/Library/Logs/Logsync.log"
+  rm -rf /Applications/Logsync.app 2>/dev/null || true
+  [ -e /Applications/Logsync.app ] && echo "  Dra /Applications/Logsync.app till papperskorgen i Finder."
+  echo "Logsync är avinstallerat. Manus och loggar i webbläsaren påverkas inte."
+  exit 0
+fi
 echo "• Hämtar Logsync …"
 curl -fsSL -o "$TMP/logsync.zip" "$BASE/Logsync-app.zip"
 ditto -x -k "$TMP/logsync.zip" "$TMP/u"
@@ -63,3 +74,5 @@ echo
 echo "Klart. Om några sekunder syns LS i menyraden."
 echo "Appen ligger i Program-mappen i din hemmapp (~/Applications) och kan startas därifrån eller från webbläsaren."
 echo "Logg: tail -n 30 ~/Library/Logs/Logsync.log"
+echo "Allt Logsync laddar ner (Whisper-modellen, Python och paket) hamnar i: $SUPPORT"
+echo "Avinstallera: LS-menyn → Avinstallera Logsync, eller: curl -fsSL $BASE/install.sh | bash -s -- --avinstallera"

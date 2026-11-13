@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Logsync – menyradsapp. Startar transkriberingstjänsten; Stäng av stänger den."""
-import os, subprocess, sys, threading
+import os, shutil, subprocess, sys, threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -10,15 +10,37 @@ import logsync_helper as H
 DEFAULT_URL = os.environ.get("LOGSYNC_APP_URL", "https://philipatspoon.github.io/logsync/")
 LOG = Path.home() / "Library/Logs/Logsync.log"
 MODEL = "mlx-community/whisper-large-v3-turbo"
+SUPPORT = Path.home() / "Library/Application Support/Logsync"   # allt appen laddar ner ligger här
+APPS = [Path.home() / "Applications/Logsync.app", Path("/Applications/Logsync.app")]
+
+
+def folder_size(p):
+    total = 0
+    for root, _dirs, files in os.walk(p):
+        for f in files:
+            fp = os.path.join(root, f)
+            if not os.path.islink(fp):
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    pass
+    return total
+
+
+def gb(n):
+    return f"{n / 1e9:.1f} GB".replace(".", ",")
 
 
 class App(rumps.App):
     def __init__(self):
         super().__init__("LS", quit_button=None)
         self.status = rumps.MenuItem("Startar …")
+        self.storage = rumps.MenuItem("Lagring: räknar …")
         self.menu = [self.status, None,
                      rumps.MenuItem("Öppna Logsync", callback=self.open_app),
                      rumps.MenuItem("Visa logg", callback=self.show_log), None,
+                     self.storage, rumps.MenuItem("Visa i Finder", callback=self.show_folder),
+                     rumps.MenuItem("Avinstallera Logsync …", callback=self.uninstall), None,
                      rumps.MenuItem("Stäng av", callback=self.stop)]
         self.ready = False
         try:
@@ -28,6 +50,7 @@ class App(rumps.App):
             sys.exit(0)
         H.ON_QUIT = lambda: rumps.quit_application()
         threading.Thread(target=self.prepare, daemon=True).start()
+        threading.Thread(target=self.measure, daemon=True).start()
         rumps.Timer(self.tick, 1).start()
 
     def prepare(self):
@@ -40,6 +63,33 @@ class App(rumps.App):
             self.ready = True
         except Exception as e:
             self.status.title = f"⚠ {e}"
+
+    def measure(self):
+        self.storage.title = f"Lagring: {gb(folder_size(SUPPORT))} (modell, Python och paket)"
+
+    def show_folder(self, _):
+        subprocess.run(["open", str(SUPPORT)])
+
+    def uninstall(self, _):
+        if H.JOB.get("state") == "running":
+            rumps.alert("Logsync", "En transkribering pågår. Vänta tills den är klar.")
+            return
+        size = gb(folder_size(SUPPORT))
+        if not rumps.alert("Avinstallera Logsync",
+                           f"Tar bort Logsync-appen, Whisper-modellen och allt den har laddat ner ({size}).\n\n"
+                           "Manus, loggar och transkript i webbläsaren påverkas inte, och inte heller "
+                           "transkriptfilerna bredvid dina kamerafiler.",
+                           ok="Avinstallera", cancel="Avbryt"):
+            return
+        shutil.rmtree(SUPPORT, ignore_errors=True)
+        for app in APPS:
+            shutil.rmtree(app, ignore_errors=True)
+        LOG.unlink(missing_ok=True)
+        left = [str(a) for a in APPS if a.exists()]
+        rumps.alert("Logsync är avinstallerat",
+                    "Allt är borttaget." if not left else
+                    "Allt är borttaget utom " + ", ".join(left) + ". Dra den till papperskorgen i Finder.")
+        rumps.quit_application()
 
     def tick(self, _):
         j = H.JOB
