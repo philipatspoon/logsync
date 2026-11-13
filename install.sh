@@ -30,6 +30,10 @@ ditto -x -k "$TMP/logsync.zip" "$TMP/u"
 
 echo "• Lägger koden i $CODE"
 pkill -f "Logsync/app/menubar.py" 2>/dev/null || true
+# Rensa Intel-versioner som kan ha installerats av en tidigare start via Rosetta
+for d in "$SUPPORT/bin" "$SUPPORT/python"; do
+  if [ -d "$d" ] && file -b "$d"/*/bin/python3* "$d"/uv 2>/dev/null | grep -q "x86_64" && ! file -b "$d"/*/bin/python3* "$d"/uv 2>/dev/null | grep -q arm64; then rm -rf "$d"; fi
+done
 rm -rf "$CODE"; mkdir -p "$CODE"
 cp "$TMP/u/Logsync.app/Contents/Resources/"* "$CODE/"
 chmod 755 "$CODE/"*.sh
@@ -58,6 +62,12 @@ $PB -c "Add :CFBundleURLTypes array" -c "Add :CFBundleURLTypes:0 dict" \
     -c "Add :CFBundleURLTypes:0:CFBundleURLName string app.logsync.launcher" \
     -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
     -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string logsync" "$P"
+# Bara Apple silicon-delen av startprogrammet: annars kan macOS köra det via Rosetta och varna för Intel-appar
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then
+  lipo "$APP/Contents/MacOS/applet" -thin arm64 -output "$TMP/applet" 2>/dev/null && mv -f "$TMP/applet" "$APP/Contents/MacOS/applet" && chmod 755 "$APP/Contents/MacOS/applet"
+  $PB -c "Delete :LSArchitecturePriority" "$P" 2>/dev/null || true
+  $PB -c "Add :LSArchitecturePriority array" -c "Add :LSArchitecturePriority:0 string arm64" "$P"
+fi
 codesign --force --deep -s - "$APP" 2>/dev/null || true      # lokal signatur efter ändringen
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

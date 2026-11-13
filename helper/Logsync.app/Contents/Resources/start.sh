@@ -1,5 +1,10 @@
 #!/bin/bash
 # Startar menyradsappen i bakgrunden och avslutar direkt. Används av appen som install.sh bygger.
+# Alltid som Apple silicon: startas vi via Rosetta (Intel-läge) skulle Intel-versioner installeras,
+# och Whisper-paketet (MLX) finns bara för Apple silicon.
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ] && [ "$(uname -m)" != "arm64" ]; then
+  exec /usr/bin/arch -arm64 /bin/bash "$0" "$@"
+fi
 RES="$(cd "$(dirname "$0")" && pwd)"
 LOG="$HOME/Library/Logs/Logsync.log"
 mkdir -p "$HOME/Library/Logs"
